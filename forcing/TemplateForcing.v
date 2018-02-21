@@ -1,7 +1,7 @@
 Require Import List Arith Nat.
 Require Import Template.monad_utils Template.Ast
         Template.Template Template.LiftSubst.
-Require Import TFUtils.
+Require Import Forcing.TFUtils.
 Import ListNotations MonadNotation.
 
 Local Open Scope string_scope.
@@ -138,7 +138,7 @@ Definition get_var_shift n fctx :=
 
 (* TODO: use the same style for the record projections everywhere *)
 
-Definition extend fctx :=
+Definition extend (fctx : forcing_context) : list context_decl * forcing_context :=
   let cat := fctx.(f_category) in
   let last := last_condition fctx in
   let ext :=
@@ -147,6 +147,8 @@ Definition extend fctx :=
   (ext, {| f_context := fcLift :: fctx.(f_context);
            f_category := cat;
            f_translator := fctx.(f_translator)|}).
+
+Check extend.
 
 Definition add_variable fctx :=
   {| f_context := fcVar :: fctx.(f_context);
@@ -162,7 +164,7 @@ Definition translate_var fctx n :=
   let m := get_var_shift n fctx in
   tApp (tRel m) [p; f ].
 
-(* TODO: figure out how to deal with translated declarations *)
+(* TODO: deal with this definition when we add support for inductive definitions *)
 (* Definition get_inductive (fctx : forcing_context) (ind : inductive) := *)
 (*   let gr := IndRef ind in *)
 (*   let gr_ := lookup_default fctx.(f_translator) gr in *)
@@ -171,16 +173,26 @@ Definition translate_var fctx n :=
 (*   | _ => ind *)
 (*   end. *)
 
-(* Definition apply_global env sigma gr u fctx := *)
-(*   (** FIXME -- a comment from the OCaml source code *) *)
-(*   let p' := lookup_default fctx.(f_translator) gr *)
-(*   in *)
-(*   let (sigma, c) := Evd.fresh_global env sigma p' in *)
-(*   let last := last_condition fctx in *)
-(*   match gr with *)
-(*   | IndRef _ -> assert false *)
-(*   | _ -> (sigma, mkApp (c, [| mkRel last |])) *)
+Definition should_not_be_ind := tVar "Should not be and application of an inductive type".
 
+(** A stub for the actual evar_map definition *)
+Definition evar_map := unit.
+
+Module Environ.
+(** A stub for Environ.env *)
+  Definition env := unit.
+End Environ.
+
+Definition apply_global (env : Environ.env) (sigma : evar_map) gr (u : universe_instance) fctx :=
+  (** FIXME -- a comment from the OCaml source code *)
+  (* The parameter [u] is never used in the definition *)
+  let p' := lookup_default fctx.(f_translator) gr in
+  (* let (sigma, c) := Evd.fresh_global env sigma p' in *)
+  let last := last_condition fctx in
+  match gr with
+  | IndRef _ => (sigma, should_not_be_ind)
+  | _ => (sigma, tApp p' [ tRel last ])
+  end.
 (** Forcing translation core *)
 
 Definition not_supported := tVar "Not supported".
@@ -191,30 +203,28 @@ Definition is_prop (s : universe) :=
   | _ => false
   end.
 
-Print context_decl.
 
 Definition id_translate sigma c : unit * term :=
-    (sigma, c).
+  (sigma, c).
 
-(** A stub for the actual evar_map definition *)
-Definition evar_map := unit.
-
-Definition otranslate_type (tr : unit -> forcing_context -> evar_map -> term -> unit * term)
-           (env : unit) (fctx : forcing_context) (sigma : evar_map) (t : term) : unit * term :=
+Definition otranslate_type (tr : Environ.env -> forcing_context -> evar_map -> term -> unit * term)
+           (env : Environ.env) (fctx : forcing_context) (sigma : evar_map)
+           (t : term) : unit * term :=
   let (sigma, t_) := tr env fctx sigma t in
   let last := tRel (last_condition fctx) in
   let t_ := mkOptApp t_ [ last; fctx.(f_category).(cat_id)] in
 (sigma, t_).
 
 Definition otranslate_boxed (tr : unit -> forcing_context -> evar_map -> term -> unit * term)
-           (env : unit) (fctx : forcing_context) (sigma : evar_map) (t : term)
+           (env : Environ.env) (fctx : forcing_context) (sigma : evar_map) (t : term)
   : unit * term :=
   let (ext, ufctx) := extend fctx in
   let (sigma, t_) := tr env ufctx sigma t in
   let t_ := it_mkLambda_or_LetIn t_ ext in
 (sigma, t_).
 
-Fixpoint otranslate (env : unit) fctx sigma c {struct c} : unit * term :=
+Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
+         (sigma : evar_map) (c : term) {struct c} : evar_map * term :=
   match c with
   | tRel n =>
     let ans := translate_var fctx n in
@@ -321,13 +331,15 @@ Fixpoint otranslate (env : unit) fctx sigma c {struct c} : unit * term :=
   (sigma, app)
 | tVar id => (sigma, not_supported)
   (* apply_global env sigma (VarRef id) Univ.Instance.empty fctx *)
-| tConst p u => (sigma, not_supported)
-  (* apply_global env sigma (ConstRef p) u fctx *)
-| tInd ind u => (sigma, not_supported)
+| tConst p u =>  apply_global env sigma (ConstRef p) u fctx
+| tInd ind u =>
+  (* Comment out the case for inductive types for now *)
+  (sigma, not_supported)
   (* otranslate_ind env fctx sigma ind u [||] *)
 | tConstruct c u _ => (sigma, not_supported)
   (* apply_global env sigma (ConstructRef c) u fctx *)
 | tCase ci r c p => (sigma, not_supported)
+(* Comment out this case as well, since inductive types are not yet supported by this translation *)
    (* let ind_ = get_inductive fctx ci.ci_ind in *)
    (* let ci_ = Inductiveops.make_case_info env ind_ ci.ci_pp_info.style in *)
    (* let (sigma, c_) = otranslate env fctx sigma c in *)
