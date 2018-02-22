@@ -93,9 +93,6 @@ Fixpoint gather_morphisms_internal i n fctx :=
 Definition gather_morphisms (n : nat) (fctx : forcing_context) : list nat :=
   gather_morphisms_internal 1 n (f_context fctx).
 
-Check lift0 1.
-Check tRel.
-
 (* TODO: Not sure if this is correct, think about de Bruijn indices.  *)
 Definition morphism_var n fctx :=
   let morphs := gather_morphisms n fctx in
@@ -155,7 +152,6 @@ Definition add_variable fctx :=
      f_category := fctx.(f_category);
      f_translator := fctx.(f_translator)|}.
 
-
 (** Handling of globals *)
 
 Definition translate_var fctx n :=
@@ -179,8 +175,13 @@ Definition should_not_be_ind := tVar "Should not be and application of an induct
 Definition evar_map := unit.
 
 Module Environ.
-(** A stub for Environ.env *)
+  (** Stub for global environment Environ *)
+
+  Definition rel_declaration := unit.
+
   Definition env := unit.
+
+  Definition rel_context (e : env) : list rel_declaration := [].
 End Environ.
 
 Definition apply_global (env : Environ.env) (sigma : evar_map) gr (u : universe_instance) fctx :=
@@ -379,36 +380,14 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
 | tEvar _ _ => (sigma, not_supported)
   end.
 
-(** Copied from the template coq demo *)
-
-(** This is just printing **)
-Test Quote (fun x : nat => x * x).
-
-Test Quote (fun (f : nat -> nat) (x : nat) => f x).
-
-Test Quote (let x := 2 in x).
-
-Test Quote (let x := 2 in
-            match x with
-              | 0 => 0
-              | S n => n
-            end).
-
-(** Build a definition **)
-Definition d : Ast.term.
-  let t := constr:(fun x : nat => x) in
-  let k x := refine x in
-  quote_term t k.
-Defined.
-
-Print d.
-
-(** Another way **)
-Quote Definition d' := (fun x : nat => x).
-
-(** To quote existing definitions **)
-Definition id_nat : nat -> nat := fun x => x.
-
-Quote Definition d'' := Eval compute in id_nat.
-
-Print d''.
+Definition empty translator cat lift env :=
+  let ctx := Environ.rel_context env in
+  let empty := {| f_context := []; f_category := cat; f_translator := translator; |} in
+  let empty := List.fold_right (fun _ fctx => add_variable fctx) empty ctx in
+  let fix flift fctx n :=
+      match n with
+      | O => fctx
+      | S n' => flift (snd (extend fctx)) (pred n')
+      end
+  in
+  flift empty (match lift with None => 0 | Some n => n end).
