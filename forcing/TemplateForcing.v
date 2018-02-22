@@ -391,3 +391,21 @@ Definition empty translator cat lift env :=
       end
   in
   flift empty (match lift with None => 0 | Some n => n end).
+
+Definition translate (toplevel : bool) lift translator cat env sigma c :=
+  let empty := empty translator cat lift env in
+  let (sigma, c) := otranslate env empty sigma c in
+  let ans := if toplevel then tLambda pos_name cat.(cat_obj) c else c in
+  (sigma, ans).
+
+Definition translate_simple (cat : category) (c : term) : term :=
+  let (_, c_) := translate true None [] cat tt tt c in c_.
+
+Definition translate_type (toplevel : bool) lift translator cat env sigma c :=
+  let empty := empty translator cat lift env in
+  let (sigma, c) := otranslate_type otranslate env empty sigma c in
+  let ans := if toplevel then tProd pos_name cat.(cat_obj) c else c in
+  (sigma, ans).
+
+Definition translate_type_simple (cat : category) (c : term) : term :=
+  let (_, c_) := translate_type true None [] cat tt tt c in c_.
