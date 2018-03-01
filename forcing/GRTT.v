@@ -47,8 +47,10 @@ Definition tpᶠ : forall p p0 : nat_obj, p ≤ p0 -> Type
 
 
 (* Unqouting the syntax for the translated Type *)
-Make Definition grType := Eval compute in tr_Type_syn.
+Make Definition unqType := Eval compute in tr_Type_syn.
 
+Lemma unqType_forcing_plugin_eq : unqType = tpᶠ.
+Proof. reflexivity. Qed.
 
 (** Copied from the template coq demo *)
 
