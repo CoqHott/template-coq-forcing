@@ -108,7 +108,7 @@ Definition morphism_var n fctx :=
   let cat := (f_category fctx) in
   let fold_with (accu : term) (i : nat) :=
       tApp cat.(cat_comp) [(tRel i); accu] in
-  let init := tApp (cat_id cat) [last]
+  let init := tApp cat.(cat_id) [last]
   in
   List.fold_left fold_with morphs init.
 
@@ -285,7 +285,7 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
       (* which, in turn, requires to inline otranslate_type *)
       let (sigma, t_) := otranslate env ufctx sigma t in
       let last := tRel (last_condition fctx) in
-      let t_ := mkOptApp t_ [ last; fctx.(f_category).(cat_id)] in
+      let t_ := mkOptApp t_ [ last; tApp fctx.(f_category).(cat_id) [last]] in
 
       let t_ := it_mkProd_or_LetIn t_ ext in
       (sigma, t_) in

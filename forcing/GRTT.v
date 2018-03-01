@@ -3,47 +3,54 @@
 
 Require Import Template.monad_utils Template.Ast
         Template.Template Template.LiftSubst.
-Require Import String.
+Require Import String PeanoNat.
 Require Import Forcing.TemplateForcing.
+
+(* Some axioms *)
+Require Import FunctionalExtensionality.
+Require Import ProofIrrelevance.
 
 Open Scope string.
 
-(** Yoneda embedding  *)
-Definition nat_obj := nat.
-Definition nat_hom := (fun (P Q : nat_obj) => forall R, Q <= R -> P <= R).
-Definition id_nat_hom (P : nat_obj) := (fun (R : nat_obj) (k : P <= R) => k).
-Definition nat_comp (P Q R : nat_obj) (g : nat_hom Q R) (f : nat_hom P Q)
-  := (fun (S : nat_obj) (k : R <= S) => f S (g S k)).
+Definition Obj : Type := nat.
+Definition Hom : Obj -> Obj -> Prop := fun n m => m <= n.
 
-Notation "P ≤ Q" := (nat_hom P Q) (at level 70).
-Notation "#" := id_nat_hom.
-Notation "f ∘ g" := (fun (R : nat_obj) (k : _ <= R) => f R (g R k)) (at level 40).
+(** Yoneda embedding  *)
+Definition Ynat_obj := nat.
+Definition Ynat_hom := (fun (P Q : Ynat_obj) => forall R, Hom Q R -> Hom P R).
+Definition Yid_nat_hom (P : Ynat_obj) := (fun (R : Ynat_obj) (k : Hom P R) => k).
+Definition Ynat_comp (P Q R : Ynat_obj) (g : Ynat_hom Q R) (f : Ynat_hom P Q)
+  := (fun (S : Ynat_obj) (k : Hom R S) => f S (g S k)).
+
+Notation "P ≤ Q" := (Ynat_hom P Q) (at level 70).
+Notation "#" := Yid_nat_hom.
+Notation "f ∘ g" := (fun (R : Ynat_obj) (k : Hom _ R) => f R (g R k)) (at level 40).
 
 (* Now, laws hold definitionally *)
-Lemma nat_cat_left_id P R (g : R ≤ P)  : (id_nat_hom R) ∘ g = g.
+Lemma nat_cat_left_id P R (g : R ≤ P)  : (# R) ∘ g = g.
 Proof. reflexivity. Qed.
 
-Lemma nat_cat_right_id P R (f : P ≤ R)  : f ∘ (id_nat_hom R) = f.
+Lemma nat_cat_right_id P R (f : P ≤ R)  : f ∘ (# R) = f.
 Proof. reflexivity. Qed.
 
 Lemma nat_cat_assoc P Q R S (f : P ≤ Q) (g : Q ≤ R) (h : R ≤ S):
   f ∘ (g ∘ h) = (f ∘ g) ∘ h.
 Proof. reflexivity. Qed.
 
-Definition nat_cat : category :=
-  makeCat "nat_obj" "nat_hom" "id_nat_hom" "nat_comp".
+Definition Ynat_cat : category :=
+  makeCat "Ynat_obj" "Ynat_hom" "Yid_nat_hom" "Ynat_comp".
 
 
 (* Translating Type *)
 
 Quote Definition qType := Type.
 
-Definition tr_Type_syn := Eval compute in translate_simple true nat_cat qType.
+Definition tr_Type_syn := Eval compute in translate_simple true Ynat_cat qType.
 
 
 (* A translation of Type from the forcing plugin *)
-Definition tpᶠ : forall p p0 : nat_obj, p ≤ p0 -> Type
-  := fun (p p0 : nat_obj) (_ : p ≤ p0) => forall p1 : nat_obj, p0 ≤ p1 -> Type.
+Definition tpᶠ : forall p p0 : Ynat_obj, p ≤ p0 -> Type
+  := fun (p p0 : Ynat_obj) (_ : p ≤ p0) => forall p1 : Ynat_obj, p0 ≤ p1 -> Type.
 
 
 (* Unqouting the syntax for the translated Type *)
@@ -52,36 +59,68 @@ Make Definition unqType := Eval compute in tr_Type_syn.
 Lemma unqType_forcing_plugin_eq : unqType = tpᶠ.
 Proof. reflexivity. Qed.
 
-(** Copied from the template coq demo *)
+(* Lemmas from the the implementation of guarded recursive types using
+the forcing transalation plugin. *)
 
-(** This is just printing **)
-Test Quote (fun x : nat => x * x).
+Lemma Yle_to_le : forall n m, n ≤ m -> m <= n.
+Proof.
+  intros n m H.
+  unfold Hom in H.
+  eapply H.
+  eapply le_n.
+Qed.
 
-Test Quote (fun (f : nat -> nat) (x : nat) => f x).
 
-Test Quote (let x := 2 in x).
 
-Test Quote (let x := 2 in
-            match x with
-              | 0 => 0
-              | S n => n
-            end).
+Lemma le_to_Yle : forall n m, n <= m -> m ≤ n.
+Proof.
+unfold Hom.
+intros n m H R H'.
+refine (Nat.le_trans _ n _ _ _); tauto.
+Qed.
 
-(** Build a definition **)
-Definition d : Ast.term.
-  let t := constr:(fun x : nat => x) in
-  let k x := refine x in
-  quote_term t k.
+
+Lemma Yle_Sn_0 : forall n, 0 ≤ S n -> False.
+Proof.
+  unfold Hom;
+  intros n H.
+  specialize (H (S n) (le_n (S n))).
+  inversion H.
+Qed.
+
+Definition Yle_S' m : S m ≤ m.
+Proof.
+  eapply le_to_Yle.
+  eapply le_S.
+  eapply le_n.
 Defined.
 
-Print d.
+Definition Ynat_irr p q (α α' : p ≤ q): α = α'.
+Proof.
+  unfold Hom in α,α'.
+  apply (functional_extensionality_dep α α').
+  intro r.
+  apply (functional_extensionality_dep (α r) (α' r)).
+  intro α''.
+  apply ProofIrrelevance.proof_irrelevance.
+Defined.
 
-(** Another way **)
-Quote Definition d' := (fun x : nat => x).
 
-(** To quote existing definitions **)
-Definition id_nat : nat -> nat := fun x => x.
+(* The definition of [later] operator *)
 
-Quote Definition d'' := Eval compute in id_nat.
+Quote Definition qTypeConstr := (Type -> Type).
 
-Print d''.
+Definition tr_TypeConstr_syn := Eval compute in translate_type_simple true Ynat_cat qTypeConstr.
+
+Make Definition gArrowTypeType := Eval compute in tr_TypeConstr_syn.
+
+Definition later : gArrowTypeType.
+Proof.
+  unfold gArrowTypeType.
+  intros p T q f.
+  destruct q.
+  exact unit.
+  exact (T q (f ∘ (Yle_S' q)) q (# _)).
+Defined.
+
+Notation "⊳ A" := (later A) (at level 40).
