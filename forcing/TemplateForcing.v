@@ -1,3 +1,12 @@
+(** Porting the OCaml version of the forcing translation plugin.
+
+    Some notes:
+    - the Yoneda embedding is removed from the translation and should be provided by
+      the user, if required;
+    - porting the OCaml code required to change de Bruijn indices to start from 0,
+      and not from 1 as in the Coq's kernel (hopefully, fixed everywhere);
+    - only the translation for the negative fragment is supported for now. *)
+
 Require Import List Arith Nat.
 Require Import Template.monad_utils Template.Ast
         Template.Template Template.LiftSubst.
@@ -5,8 +14,6 @@ Require Import Forcing.TFUtils.
 Import ListNotations MonadNotation.
 
 Local Open Scope string_scope.
-
-(** Porting some definitions from the OCaml forcing plugin implementation *)
 
 (** We add a composition and an identity as a part of a categorical structe that must
     be provided by a user, since the Yoneda embedding is not a part of
