@@ -72,15 +72,16 @@ Record forcing_context :=
             (* A map associating to all source constant a forced constant *)
           }.
 
+(* WARNING: tRel indices start from 0 in Tempalte Coq and *not* from 1 as for mkRel in the kernel  *)
 Fixpoint last_internal fctx :=
   match fctx with
-  | [] => 1
+  | [] => 0
   | fcVar :: fctx => 1 + last_internal fctx
-  | fcLift :: fctx => 2
+  | fcLift :: fctx => 1
   end.
 
 Definition last_condition fc :=
-  last_internal (f_context fc).
+  last_internal fc.(f_context).
 
 Fixpoint gather_morphisms_internal i n fctx :=
   if (Nat.eqb n 0) then []
@@ -99,10 +100,19 @@ Definition morphism_var n fctx :=
   let last := tRel (last_condition fctx) in
   let cat := (f_category fctx) in
   let fold_with (accu : term) (i : nat) :=
-      tApp (cat_comp cat) [(tRel i); accu] in
+      tApp cat.(cat_comp) [(tRel i); accu] in
   let init := tApp (cat_id cat) [last]
   in
   List.fold_left fold_with morphs init.
+
+(* The original OCaml code *)
+(* let morphism_var n fctx = *)
+(*   let morphs = gather_morphisms n fctx in *)
+(*   let last = mkRel (last_condition fctx) in *)
+(*   let fold accu i = *)
+(*     trns fctx.category dummy dummy last (mkRel i) accu *)
+(*   in *)
+(* List.fold_left fold (refl fctx.category last) morphs *)
 
 
 (* Some examples to play with  *)
@@ -139,13 +149,19 @@ Definition extend (fctx : forcing_context) : list context_decl * forcing_context
   let cat := fctx.(f_category) in
   let last := last_condition fctx in
   let ext :=
-      [ Build_context_decl hom_name None (tApp cat.(cat_hom) [(tRel (1 + last)); (tRel 1)]);
-          Build_context_decl pos_name None cat.(cat_obj) ] in
+      [ Build_context_decl
+          hom_name
+          None
+          (tApp cat.(cat_hom) [(tRel (1 + last)); (tRel 0)]);
+          (* replaced mkRel 1 with tRel 0, see comments for [last_condition] *)
+        Build_context_decl
+          pos_name
+          None
+          cat.(cat_obj) ]
+  in
   (ext, {| f_context := fcLift :: fctx.(f_context);
            f_category := cat;
            f_translator := fctx.(f_translator)|}).
-
-Check extend.
 
 Definition add_variable fctx :=
   {| f_context := fcVar :: fctx.(f_context);
@@ -169,7 +185,7 @@ Definition translate_var fctx n :=
 (*   | _ => ind *)
 (*   end. *)
 
-Definition should_not_be_ind := tVar "Should not be and application of an inductive type".
+Definition should_not_be_ind := tVar "Should not be an application of an inductive type constructor".
 
 (** A stub for the actual evar_map definition *)
 Definition evar_map := unit.
@@ -194,6 +210,8 @@ Definition apply_global (env : Environ.env) (sigma : evar_map) gr (u : universe_
   | IndRef _ => (sigma, should_not_be_ind)
   | _ => (sigma, tApp p' [ tRel last ])
   end.
+
+
 (** Forcing translation core *)
 
 Definition not_supported := tVar "Not supported".
@@ -209,11 +227,11 @@ Definition id_translate sigma c : unit * term :=
   (sigma, c).
 
 Definition otranslate_type (tr : Environ.env -> forcing_context -> evar_map -> term -> unit * term)
-           (env : Environ.env) (fctx : forcing_context) (sigma : evar_map)
-           (t : term) : unit * term :=
+           (env : Environ.env) (fctx : forcing_context) (sigma : evar_map) (t : term)
+  : unit * term :=
   let (sigma, t_) := tr env fctx sigma t in
   let last := tRel (last_condition fctx) in
-  let t_ := mkOptApp t_ [ last; fctx.(f_category).(cat_id)] in
+  let t_ := mkOptApp t_ [ last; tApp fctx.(f_category).(cat_id) [last]] in
 (sigma, t_).
 
 Definition otranslate_boxed (tr : unit -> forcing_context -> evar_map -> term -> unit * term)
@@ -236,9 +254,10 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
   let (sigma, s') :=
       if is_prop s then (sigma, s)
     else
-      (* TODO: Not sure ho to deal with universe variable generation *)
+      (* TODO: Not sure how to deal with the universe variable generation *)
       (* Evd.new_sort_variable Evd.univ_flexible sigma *)
-      (* Use an empty list as a universe param *)
+      (* Probably, use an empty list as a universe param *)
+      (* For now, we just return the original universe, as it is given in the paper *)
       (sigma, s)
   in
   (* let sigma := Evd.set_leq_sort env sigma s s' in *)
@@ -387,10 +406,13 @@ Definition empty translator cat lift env :=
   let fix flift fctx n :=
       match n with
       | O => fctx
-      | S n' => flift (snd (extend fctx)) (pred n')
+      | S n' => flift (snd (extend fctx)) n'
       end
   in
   flift empty (match lift with None => 0 | Some n => n end).
+
+
+(** The toplevel option allows to close over the topmost forcing condition *)
 
 Definition translate (toplevel : bool) lift translator cat env sigma c :=
   let empty := empty translator cat lift env in
@@ -398,8 +420,8 @@ Definition translate (toplevel : bool) lift translator cat env sigma c :=
   let ans := if toplevel then tLambda pos_name cat.(cat_obj) c else c in
   (sigma, ans).
 
-Definition translate_simple (cat : category) (c : term) : term :=
-  let (_, c_) := translate true None [] cat tt tt c in c_.
+Definition translate_simple (toplevel : bool) (cat : category) (c : term) : term :=
+  let (_, c_) := translate toplevel None [] cat tt tt c in c_.
 
 Definition translate_type (toplevel : bool) lift translator cat env sigma c :=
   let empty := empty translator cat lift env in
@@ -407,5 +429,5 @@ Definition translate_type (toplevel : bool) lift translator cat env sigma c :=
   let ans := if toplevel then tProd pos_name cat.(cat_obj) c else c in
   (sigma, ans).
 
-Definition translate_type_simple (cat : category) (c : term) : term :=
-  let (_, c_) := translate_type true None [] cat tt tt c in c_.
+Definition translate_type_simple (toplevel : bool) (cat : category) (c : term) : term :=
+  let (_, c_) := translate_type toplevel None [] cat tt tt c in c_.

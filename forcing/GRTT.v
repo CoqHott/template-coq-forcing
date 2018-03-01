@@ -1,6 +1,8 @@
 (* Formalisation of Guarded Recursive Types using the cbn forcing translation in Template Coq
    with the ordered set of natural numbers as forcing conditions *)
 
+Require Import Template.monad_utils Template.Ast
+        Template.Template Template.LiftSubst.
 Require Import String.
 Require Import Forcing.TemplateForcing.
 
@@ -30,6 +32,23 @@ Proof. reflexivity. Qed.
 
 Definition nat_cat : category :=
   makeCat "nat_obj" "nat_hom" "id_nat_hom" "nat_comp".
+
+
+(* Translating Type *)
+
+Quote Definition qType := Type.
+
+Definition tr_Type_syn := Eval compute in translate_simple true nat_cat qType.
+
+
+(* A translation of Type from the forcing plugin *)
+Definition tpᶠ : forall p p0 : nat_obj, p ≤ p0 -> Type
+  := fun (p p0 : nat_obj) (_ : p ≤ p0) => forall p1 : nat_obj, p0 ≤ p1 -> Type.
+
+
+(* Unqouting the syntax for the translated Type *)
+Make Definition grType := Eval compute in tr_Type_syn.
+
 
 (** Copied from the template coq demo *)
 
