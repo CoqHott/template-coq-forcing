@@ -1,5 +1,6 @@
 Require Import Template.All.
 Require Import List.
+Require Import Template.Ast.
 Import ListNotations.
 
 
@@ -25,21 +26,23 @@ Definition lookup_default (E : tsl_table) (gr : global_reference)
   | Some t => t
   end.
 
+Print term.
+
 (* Partly taken from Template.Typing *)
 Fixpoint it_mkLambda_or_LetIn (t : term) (l : context) :=
   List.fold_left
     (fun acc d =>
        match d.(decl_body) with
-       | None => tLambda d.(decl_name) d.(decl_type) acc
-       | Some b => tLetIn d.(decl_name) b d.(decl_type) acc
+       | None => tLambda d.(decl_name) d.(decl_relevance) d.(decl_type) acc
+       | Some b => tLetIn d.(decl_name) d.(decl_relevance) b d.(decl_type) acc
        end) l t.
 
 Fixpoint it_mkProd_or_LetIn (t : term) (l : context) :=
   List.fold_left
     (fun acc d =>
        match d.(decl_body) with
-       | None => tProd d.(decl_name) d.(decl_type) acc
-       | Some b => tLetIn d.(decl_name) b d.(decl_type) acc
+       | None => tProd d.(decl_name) d.(decl_relevance) d.(decl_type) acc
+       | Some b => tLetIn d.(decl_name) d.(decl_relevance) b d.(decl_type) acc
        end) l t.
 
 Fixpoint fold_map_internal {A B C : Type} (f : A -> B -> A * C) (a : A)

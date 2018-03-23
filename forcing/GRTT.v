@@ -38,14 +38,14 @@ Lemma nat_cat_assoc P Q R S (f : P ≤ Q) (g : Q ≤ R) (h : R ≤ S):
 Proof. reflexivity. Qed.
 
 Definition Ynat_cat : category :=
-  makeCat "Ynat_obj" "Ynat_hom" "Yid_nat_hom" "Ynat_comp".
+  makeCatS "Ynat_obj" "Ynat_hom" "Yid_nat_hom" "Ynat_comp".
 
 
 (* Translating Type *)
 
 Quote Definition qType := Type.
 
-Definition tr_Type_syn := Eval compute in translate_simple true Ynat_cat qType.
+Definition tr_Type_syn := Eval vm_compute in translate_simple true Ynat_cat qType.
 
 
 (* A translation of Type from the forcing plugin *)
@@ -110,9 +110,9 @@ Defined.
 
 Quote Definition qTypeConstr := (Type -> Type).
 
-Definition tr_TypeConstr_syn := Eval compute in translate_type_simple true Ynat_cat qTypeConstr.
+Definition tr_TypeConstr_syn := Eval vm_compute in translate_type_simple true Ynat_cat qTypeConstr.
 
-Make Definition gArrowTypeType := Eval compute in tr_TypeConstr_syn.
+Make Definition gArrowTypeType := Eval vm_compute in tr_TypeConstr_syn.
 
 Definition later : gArrowTypeType.
 Proof.
