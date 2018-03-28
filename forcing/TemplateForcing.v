@@ -103,7 +103,6 @@ Fixpoint gather_morphisms_internal i n fctx :=
 Definition gather_morphisms (n : nat) (fctx : forcing_context) : list nat :=
   gather_morphisms_internal 1 n (f_context fctx).
 
-(* TODO: Not sure if this is correct, think about de Bruijn indices.  *)
 Definition morphism_var n fctx :=
   let morphs := gather_morphisms n fctx in
   let last := tRel (last_condition fctx) in
@@ -180,14 +179,14 @@ Definition from_rel_result (rl : rel_result) : relevance :=
 (* TODO: use the same style for the record projections everywhere *)
 
 (* While extending the context we need to determine the relevance of the types of morphisms and objects in the category.
-   In order to do that we use the [relevance_of_type] function, and this function requires a glogal context, so now
+   In order to do that we use the [relevance_of_type] function, and this function requires a global context, so now
    [extend] also takes is as a parameter *)
 Definition extend (env : Environ.env) (fctx : forcing_context) : list context_decl * forcing_context :=
   let cat := fctx.(f_category) in
   let last := last_condition fctx in
   let g_ctx := Environ.env_globals env in
   let relevance_of_arg := from_rel_result (relevance_of_type g_ctx [] cat.(cat_obj)) in
-  (* We are interested in the relevance of [hom x y] for any [x] and [y] of appropriate type.
+  (* We are interested in the relevance of [hom x y] for any [x] and [y] of the appropriate type.
      So, we create a dummy context with two entries and the feed it into the [relevance_of_type] *)
   let dummy_ctx :=
       [Build_context_decl nAnon relevance_of_arg None cat.(cat_obj);
