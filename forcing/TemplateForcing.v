@@ -276,7 +276,13 @@ Definition otranslate_boxed (tr : Environ.env -> forcing_context -> evar_map -> 
   let (ext, ufctx) := extend env fctx in
   let (sigma, t_) := tr env ufctx sigma t in
   let t_ := it_mkLambda_or_LetIn t_ ext in
-(sigma, t_).
+  (sigma, t_).
+
+Definition otranslate_boxed_type (tr : Environ.env -> forcing_context -> evar_map -> term -> unit * term) env fctx sigma t :=
+  let (ext, ufctx) := extend env fctx in
+  let (sigma, t_) := otranslate_type tr env ufctx sigma t in
+  let t_ := it_mkProd_or_LetIn t_ ext in
+  (sigma, t_).
 
 Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
          (sigma : evar_map) (c : term) {struct c} : evar_map * term :=
@@ -308,17 +314,7 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
 | tProd na r t u =>
   let (ext0, fctx) := extend env fctx in
   (** Translation of t *)
-  let (sigma, t_) :=
-      (* inlining otranslate_boxed_type *)
-      let (ext, ufctx) := extend env fctx in
-      (* which, in turn, requires to inline otranslate_type *)
-      let (sigma, t_) := otranslate env ufctx sigma t in
-      let last := tRel (last_condition fctx) in
-      let t_ := mkOptApp t_ [ last; tApp fctx.(f_category).(cat_id) [last]] in
-
-      let t_ := it_mkProd_or_LetIn t_ ext in
-      (sigma, t_) in
-      (* let (sigma, t_) := otranslate_boxed_type env fctx sigma t in *)
+  let (sigma, t_) := otranslate_boxed_type otranslate env fctx sigma t in
   (** Translation of u *)
   let ufctx := add_variable fctx in
   let (sigma, u_) := otranslate_type otranslate env ufctx sigma u in
@@ -328,37 +324,15 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
   (sigma, lam)
 | tLambda na r t u =>
   (** Translation of t *)
-  let (sigma, t_) :=
-      (* inlining otranslate_boxed_type *)
-      let (ext, ufctx) := extend env fctx in
-      (* which, in turn, requires to inline otranslate_type *)
-      let (sigma, t_) := otranslate env ufctx sigma t in
-      let last := tRel (last_condition fctx) in
-      let t_ := mkOptApp t_ [ last; fctx.(f_category).(cat_id)] in
-
-      let t_ := it_mkProd_or_LetIn t_ ext in
-      (sigma, t_) in
-
-  (* let (sigma, t_) := otranslate_boxed_type env fctx sigma t in *)
+  let (sigma, t_) := otranslate_boxed_type otranslate env fctx sigma t in
   (** Translation of u *)
   let ufctx := add_variable fctx in
   let (sigma, u_) := otranslate env ufctx sigma u in
   let ans := tLambda na r t_ u_ in
   (sigma, ans)
 | tLetIn na r c t u =>
-  let (sigma, c_) :=
-      otranslate_boxed otranslate env fctx sigma c in
-  let (sigma, t_) :=
-      (* inlining otranslate_boxed_type *)
-      let (ext, ufctx) := extend env fctx in
-      (* which, in turn, requires to inline otranslate_type *)
-      let (sigma, t_) := otranslate env ufctx sigma t in
-      let last := tRel (last_condition fctx) in
-      let t_ := mkOptApp t_ [ last; fctx.(f_category).(cat_id)] in
-
-      let t_ := it_mkProd_or_LetIn t_ ext in
-      (sigma, t_) in
-  (* let (sigma, t_) := otranslate_boxed_type env fctx sigma t in *)
+  let (sigma, c_) := otranslate_boxed otranslate env fctx sigma c in
+  let (sigma, t_) := otranslate_boxed_type otranslate env fctx sigma t in
   let ufctx := add_variable fctx in
   let (sigma, u_) := otranslate env ufctx sigma u in
   (sigma, tLetIn na r c_ t_ u_)
