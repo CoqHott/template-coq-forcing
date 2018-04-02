@@ -1,7 +1,9 @@
 Require Import Template.All.
 Require Import List.
 Require Import Template.Ast.
-Import ListNotations.
+Require Import String.
+
+Open Scope string_scope.
 
 
 (* Taken from the template-coq parametricity translation *)
@@ -22,11 +24,14 @@ Definition default_term := tVar "constant_not_found".
 Definition lookup_default (E : tsl_table) (gr : global_reference)
   : term :=
   match (lookup_tsl_table E gr) with
-  | None => default_term
+  | None => match gr with
+              | ConstRef n => tVar ("Not_found_" ++ n)
+              | _ => default_term
+            end
   | Some t => t
   end.
 
-Print term.
+Import ListNotations.
 
 (* Partly taken from Template.Typing *)
 Fixpoint it_mkLambda_or_LetIn (t : term) (l : context) :=

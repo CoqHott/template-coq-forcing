@@ -10,12 +10,16 @@
 Require Import List Arith Nat.
 Require Import String.
 Require Import Template.monad_utils Template.Ast
-        Template.Template Template.LiftSubst Template.Checker.
+        Template.Template Template.LiftSubst Template.Checker Template.utils
+        Template.AstUtils.
 Require Import Forcing.TFUtils.
 
 Import ListNotations MonadNotation.
 
 Local Open Scope string_scope.
+
+Definition list_to_string {A : Type} f (xs : list A) : string
+  := (List.fold_left append (List.map (fun i => f i ++ " ") xs) "").
 
 (** We add a composition and an identity as a part of a categorical structe that must
     be provided by a user, since the Yoneda embedding is not a part of
@@ -81,6 +85,13 @@ Record forcing_context :=
             (* A map associating to all source constant a forced constant *)
           }.
 
+Definition fcond_to_string fc :=
+  match fc with
+  | fcVar => "fcVar"
+  | fcLift => "fcLift"
+  end.
+
+
 (* WARNING: tRel indices start from 0 in Tempalte Coq and *not* from 1 as for mkRel in the kernel  *)
 Fixpoint last_internal fctx :=
   match fctx with
@@ -101,17 +112,47 @@ Fixpoint gather_morphisms_internal i n fctx :=
        end.
 
 Definition gather_morphisms (n : nat) (fctx : forcing_context) : list nat :=
-  gather_morphisms_internal 1 n (f_context fctx).
+  gather_morphisms_internal 0 (n+1) (f_context fctx).
 
-Definition morphism_var n fctx :=
+Definition top_condition (fctx : forcing_context) : nat :=
+  let fld_with acc f :=
+      match f with
+      | fcVar => 1 + acc
+      | fcLift => 2 + acc
+      end in
+  List.fold_left fld_with fctx.(f_context) 0.
+
+Fixpoint top_is_lift (fctx : list forcing_condition) : bool :=
+  match fctx with
+  | [] => false
+  | [fcLift] => true
+  | c :: cs => top_is_lift cs
+  end.
+
+Definition morphism_var (n : nat) (fctx : forcing_context) : term :=
   let morphs := gather_morphisms n fctx in
   let last := tRel (last_condition fctx) in
   let cat := (f_category fctx) in
-  let fold_with (accu : term) (i : nat) :=
-      tApp cat.(cat_comp) [(tRel i); accu] in
-  let init := tApp cat.(cat_id) [last]
-  in
-  List.fold_left fold_with morphs init.
+  let fold_with (accu : term) (i j : nat) :=
+      tApp cat.(cat_comp) [tRel (j+1); tRel (i+1); last; accu; tRel i] in
+  let init := tApp cat.(cat_id) [last] in
+  let fix f_left l accu {struct l} :=
+      match l with
+      | [] => accu
+      | i :: t =>
+        match t with
+        (* We have to use this to handle a special case: the top level condition.
+         There are two cases: when the topmost entry in the forcing context is a lift, or a variable*)
+        | [] => let is_lift := top_is_lift fctx.(f_context) in
+                let top_rel := if is_lift then tRel (i+4) else tRel (top_condition fctx) in
+                tApp cat.(cat_comp) [top_rel; tRel (i+1); last; accu; tRel i]
+          | j :: t' => f_left t (fold_with accu i j)
+        end
+      end in
+  (* tVar (list_to_string fcond_to_string fctx.(f_context)). *)
+  f_left morphs init.
+  (* in *)
+  (* List.fold_left fold_with morphs init. *)
 
 (* The original OCaml code *)
 (* let morphism_var n fctx = *)
@@ -153,18 +194,24 @@ Module Environ.
   Definition empty_env := {| env_globals := [] |}.
 
   Definition rel_context (e : env) : list rel_declaration := [].
+
+  Definition of_global_context (c : global_context) : env :=  {| env_globals := fst c |}.
+
+  Definition to_global_context (E : env) : global_context :=
+    Typing.reconstruct_global_context E.(env_globals).
 End Environ.
 
 Definition get_var_shift n fctx :=
   let fix get n fctx :=
     if (Nat.eqb n 0 )then 0
-    else match fctx with
+    else
+      match fctx with
     | [] => n
     | fcVar :: fctx => 1 + get (n - 1) fctx
     | fcLift :: fctx => 2 + get n fctx
          end
   in
-  get n (f_context fctx).
+  get (n+1) fctx.(f_context).
 
 (* We convert the result of checking for relevance in a stupid way :)
    TODO: think about the error propagation *)
@@ -222,16 +269,16 @@ Definition translate_var fctx n :=
   let p := tRel (last_condition fctx) in
   let f := morphism_var n fctx in
   let m := get_var_shift n fctx in
-  tApp (tRel m) [p; f ].
+  tApp (tRel (m-1)) [p; f ].
 
-(* TODO: deal with this definition when we add support for inductive definitions *)
-(* Definition get_inductive (fctx : forcing_context) (ind : inductive) := *)
-(*   let gr := IndRef ind in *)
-(*   let gr_ := lookup_default fctx.(f_translator) gr in *)
-(*   match gr_ with *)
-(*   | IndRef ind_ => ind_ *)
-(*   | _ => ind *)
-(*   end. *)
+(* TODO: finish with this definition when we add support for inductive definitions *)
+Definition get_inductive (fctx : forcing_context) (ind : inductive) : inductive :=
+  let gr := IndRef ind in
+  let gr_ :=lookup_default fctx.(f_translator) gr in
+  match gr_ with
+  | tInd ind_ _ => ind_
+  | _ => {| inductive_mind := "inductive translation not found"; inductive_ind := 0 |}
+  end.
 
 Definition should_not_be_ind := tVar "Should not be an application of an inductive type constructor".
 
@@ -257,6 +304,12 @@ Definition is_prop (s : universe) :=
   | _ => false
   end.
 
+Fixpoint sep_last xs :=
+  match xs with
+    [] => (tVar "empty_list", [])
+  | hd::[] => (hd,[])
+  | hd::tl =>let (l,tl) := sep_last tl in (l,hd::tl)
+  end.
 
 Definition id_translate sigma c : unit * term :=
   (sigma, c).
@@ -283,11 +336,59 @@ Definition otranslate_boxed_type (tr : Environ.env -> forcing_context -> evar_ma
   let t_ := it_mkProd_or_LetIn t_ ext in
   (sigma, t_).
 
+Quote Recursively Definition q_eq := (forall A a b, eq (A:=A) a b).
+
+Definition lookup_ind Σ ind i (u : list Level.t) (* TODO Universes *) :
+  option one_inductive_entry :=
+    match lookup_env Σ ind with
+    | Some (InductiveDecl _ mib) => nth_error (mind_body_to_entry mib).( mind_entry_inds) i
+    |  _ => None
+    end.
+
+Fixpoint list_init_rev {A} (n : nat) (f : nat -> A) : list A :=
+  match n with
+  | O => [f 0]
+  | S n' => f (S n') :: list_init_rev n' f
+  end.
+
+Definition list_init {A} (n : nat) (f : nat -> A) : list A := List.rev (list_init_rev n f).
+
+(* Not finished attempt to port the translation for the inductive definitions *)
+(* Definition otranslate_ind tr (env : Environ.env) fctx sigma ind u args := *)
+(*   let ind_ := get_inductive fctx ind in *)
+(*   let oib' := lookup_ind (Environ.to_global_context env) ind_.(inductive_mind) ind_.(inductive_ind) [] in *)
+(*   (* let (_, oib) := Inductive.lookup_mind_specif env ind_ in *) *)
+(*   let fold sigma u := otranslate_boxed tr env fctx sigma u in *)
+(*   let (sigma, args_) := fold_map fold sigma args in *)
+(*   (** First parameter is the toplevel forcing condition *) *)
+(*   let (_, paramtyp) := match oib' with *)
+(*                        | Some t => sep_last t.(mind_entry_lc) *)
+(*                        | None => (tVar "Inductive not declared",[]) *)
+(*                        end in *)
+(*   let nparams := List.length paramtyp in *)
+(*   let last := last_condition fctx in *)
+(*   let fctx := List.fold_left (fun accu _ => add_variable accu) paramtyp fctx in *)
+(*   let (ext, fctx) := extend env fctx in *)
+(*   let mk_var n := *)
+(*     let n := nparams - n in *)
+(*     let (ext0, fctx) := extend env fctx in *)
+(*     let ans := translate_var fctx n in *)
+(*     it_mkLambda_or_LetIn ans ext0 *)
+(*   in *)
+(*   (* let (sigma, pi) := Evd.fresh_inductive_instance env sigma ind_ in *) *)
+(*   let params := list_init nparams mk_var in *)
+(*   let app := tApp (tInd ind_ []) (tRel (last_condition fctx) :: params) in *)
+(*   (* let map_p i c := Vars.substnl_decl [mkRel last] (nparams - i - 1) c in *) *)
+(*   (* let paramtyp := List.mapi map_p paramtyp in *) *)
+(*   let ans := it_mkLambda_or_LetIn app (ext ++ paramtyp)%list in *)
+(* (sigma, mkOptApp (ans, args_)). *)
+
 Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
          (sigma : evar_map) (c : term) {struct c} : evar_map * term :=
   match c with
-  | tRel n =>
-    let ans := translate_var fctx n in
+| tRel n =>
+  let ans := translate_var fctx n in
+  (* let ans := tVar (list_to_string fcond_to_string fctx.(f_context) ++ " | tRel " ++ string_of_int n) in *)
     (sigma, ans)
 | tSort s =>
   let (ext0, fctx) := extend env fctx in
@@ -363,7 +464,7 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
 | tConst p u =>  apply_global env sigma (ConstRef p) u fctx
 | tInd ind u =>
   (* Comment out the case for inductive types for now *)
-  (sigma, not_supported)
+  (sigma, tVar "Inductive definitions are not supported")
   (* otranslate_ind env fctx sigma ind u [||] *)
 | tConstruct c u _ => (sigma, not_supported)
   (* apply_global env sigma (ConstructRef c) u fctx *)

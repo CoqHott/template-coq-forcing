@@ -1,6 +1,8 @@
 -R forcing/ Forcing
 
 forcing/TFUtils.v
+forcing/translation_utils.v
 forcing/TemplateForcing.v
+forcing/Tests.v
 forcing/GRTT.v
 forcing/GRTT_SProp.v
