@@ -157,8 +157,6 @@ Defined.
 
 Notation "⊳ A" := (later A) (at level 40).
 
-Quote Definition qL := laterᵗ.
-
 Definition ctx_with_later := add_translation ΣE  (ConstRef "Top.later", tConst "laterᵗ" []).
 
 Definition lArr := (fun (A B : Type) => ⊳ (A -> B)).
@@ -181,7 +179,6 @@ Definition tr_LArr_syn :=
    the forcing transaltion of tSort, but reuse the previous level instead.*)
 Run TemplateProgram
     ( TC <- tTranslate ΣE "lArr" ;;
-      (* TC <- tTranslateTm ctx_with_later "lArr" (fun (A B : Type) => ⊳ (A -> B)) ;; *)
        tImplement TC "later_app"
          (forall A B (t : lArr A B) (u : ⊳ A), ⊳ B)).
 Next Obligation.

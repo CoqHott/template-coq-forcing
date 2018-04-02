@@ -78,6 +78,9 @@ Arguments List.map {_ _}.
 Arguments List.fold_left  {_ _}.
 Arguments List.app  { _}.
 
+
+(** Get all the global definitions in the term.  *)
+(* TODO: remove duplicates *)
 Fixpoint get_global_consts (tm : term) : list ident :=
   match tm with
   | tRel _ => []
@@ -106,6 +109,7 @@ Definition add_translations (ctx : tsl_context) (ts : list (global_reference * t
 Definition to_ctx `{Translation} (xs : list ident) : list (global_reference * term) :=
   List.map (fun x => (ConstRef x, tConst (tsl_id x) [])) xs.
 
+(** Add global definitions to the translation table *)
 Definition scan_globals `{Translation} (tm : term) (init : tsl_context) : TemplateMonad (tsl_context) :=
   ( mp <- tmCurrentModPath tt ;;
     ret (add_translations init (to_ctx (get_global_consts tm)))).
