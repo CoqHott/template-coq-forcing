@@ -224,7 +224,7 @@ Inductive eqᵗ (p : nat_obj) (A : forall p0 : nat_obj, p ≥ p0 -> forall p : n
 
 (* We use this trick with η-expanded version of equiality to be able to use existing translations.
    If we just lest plain [eq], the application would be of a special kind (of inductive type) and
-   it is translated differently, not as ordinary application of a global constant *)
+   it is translated differently, not as an ordinary application of a global constant *)
 Definition eq_f {A: Type} (a b : A) : Prop := a = b.
 
 Definition eq_fᵗ := fun (p : nat_obj) (A : forall p0 : nat_obj, p ≥ p0 -> forall p1 : nat_obj, p0 ≥ p1 -> Type)

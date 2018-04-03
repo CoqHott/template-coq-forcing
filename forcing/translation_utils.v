@@ -72,15 +72,23 @@ Definition tsl_name tsl_ident n :=
   | nNamed n => nNamed (tsl_ident n)
   end.
 
-Locate "++".
 
-Arguments List.map {_ _}.
-Arguments List.fold_left  {_ _}.
-Arguments List.app  { _}.
+Fixpoint in_listb (x : string) (l : list string) : bool :=
+  match l with
+    | [] => false
+    | h :: t => if (string_dec h x) then true else in_listb x t
+  end.
 
+(** Remove duplicates from the list of strings *)
+Fixpoint undup_string_list (l : list string) : list string :=
+  match l with
+    | [] => []
+    | h :: t => if (in_listb h t) then undup_string_list t else h :: undup_string_list t
+   end.
+
+Arguments List.app  {_}.
 
 (** Get all the global definitions in the term.  *)
-(* TODO: remove duplicates *)
 Fixpoint get_global_consts (tm : term) : list ident :=
   match tm with
   | tRel _ => []
@@ -102,6 +110,7 @@ Fixpoint get_global_consts (tm : term) : list ident :=
   | tCoFix _ _ => []
   end.
 
+
 Definition add_translations (ctx : tsl_context) (ts : list (global_reference * term)): tsl_context :=
   let (Σ, E) := ctx in
   (Σ,  ts ++ E)%list.
@@ -112,7 +121,7 @@ Definition to_ctx `{Translation} (xs : list ident) : list (global_reference * te
 (** Add global definitions to the translation table *)
 Definition scan_globals `{Translation} (tm : term) (init : tsl_context) : TemplateMonad (tsl_context) :=
   ( mp <- tmCurrentModPath tt ;;
-    ret (add_translations init (to_ctx (get_global_consts tm)))).
+    ret (add_translations init (to_ctx (undup_string_list (get_global_consts tm))))).
 
 Definition tTranslateTm {A : Type} {tsl : Translation} (ΣE : tsl_context) (id : ident) (tm : A)
   : TemplateMonad tsl_context :=
