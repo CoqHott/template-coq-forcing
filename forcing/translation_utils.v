@@ -123,17 +123,19 @@ Definition scan_globals `{Translation} (tm : term) (init : tsl_context) : Templa
   ( mp <- tmCurrentModPath tt ;;
     ret (add_translations init (to_ctx (undup_string_list (get_global_consts tm))))).
 
+(** Translates a given term and adds a corresponding definitions *)
 Definition tTranslateTm {A : Type} {tsl : Translation} (ΣE : tsl_context) (id : ident) (tm : A)
   : TemplateMonad tsl_context :=
   id' <- tmEval all (tsl_id id) ;;
   mp <- tmCurrentModPath tt ;;
   kn' <- tmEval all (mp ++ "." ++ id') ;;
-  t <- @tmQuote A tm ;;
+  t <- tmQuote tm ;;
   ty <- tmQuote A ;;
   t' <- tmEval lazy (tsl_tm ΣE t) ;;
      match t' with
      | Error e => print_nf e ;; fail_nf ("Translation error during the translation of the body of " ++ id)
-      | Success t' =>
+     | Success t' =>
+        tmMkDefinition id t ;;
         tmMkDefinition id' t' ;;
         let decl := {| cst_universes := Monomorphic_ctx UContext.empty;
                        cst_type := ty; cst_body := Some t |} in
@@ -141,8 +143,17 @@ Definition tTranslateTm {A : Type} {tsl : Translation} (ΣE : tsl_context) (id :
         let E' := (ConstRef id, tConst kn' []) :: (snd ΣE) in
         print_nf  (id ++ " has been translated as " ++ id') ;;
         ret (Σ', E')
-      end.
+     end.
 
+Definition tTranslateTmG {A : Type} {tsl : Translation} (ΣE : tsl_context) (id : ident) (tm : A)
+  : TemplateMonad tsl_context :=
+  t <- tmQuote tm ;;
+  ΣE' <- scan_globals t ΣE ;;
+  tTranslateTm ΣE' id tm.
+
+(* TODO: [tTranslate] always fetches global constants from the give definition and builds
+   a translation table. Maybe it's better to split it to two versions: the one that scans for
+   constants and the one that does not (like the original one) *)
 Definition tTranslate {tsl : Translation} (ΣE : tsl_context) (id : ident)
   : TemplateMonad tsl_context :=
   gr <- tmAbout id ;;
@@ -187,19 +198,20 @@ Definition tTranslate {tsl : Translation} (ΣE : tsl_context) (id : ident)
   end.
 
 
-
 Definition tImplement {tsl : Translation} (ΣE : tsl_context)
            (id : ident) (A : Type)
   : TemplateMonad (tsl_context) :=
   tA <- tmQuote A ;;
-  ΣE' <- scan_globals tA ΣE ;;
-  tA' <- tmEval lazy (tsl_ty ΣE' tA) ;;
+  tA' <- tmEval lazy (tsl_ty ΣE tA) ;;
   match tA' with
   | Error e => print_nf e ;; fail_nf ("Translation error during the translation of the type of " ++ id)
   | Success tA' =>
       id' <- tmEval all (tsl_id id) ;;
       A' <- tmUnquoteTyped Type tA' ;;
       tmLemma id' A' ;;
+      (* NOTE: If we don't add the definition of type, sometimes we run into
+      problems with universe levels, for some reason. *)
+      tmMkDefinition (id ++ "_type") tA ;;
       tmAxiom id A ;;
       gr <- tmAbout id ;;
       match gr with
@@ -214,6 +226,14 @@ Definition tImplement {tsl : Translation} (ΣE : tsl_context)
       end
   end.
 
+(* A version of tImplement that scans given type for global constants
+   and builds a translation table *)
+Definition tImplementG {tsl : Translation} (ΣE : tsl_context)
+           (id : ident) (A : Type)
+  : TemplateMonad (tsl_context) :=
+  tA <- tmQuote A ;;
+  ΣE' <- scan_globals tA ΣE ;;
+  tImplement ΣE' id A.
 
 (* Definition tImplementExisting (tsl_id : ident -> ident) *)
 (*            (tsl_tm tsl_ty : global_context -> tsl_table -> term *)
