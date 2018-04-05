@@ -3,11 +3,14 @@ Require Import Template.monad_utils Template.Ast
 Require Import String PeanoNat.
 Require Import Template.Checker.
 Require Import Template.Typing.
+
 Require Import Forcing.TemplateForcing.
 Require Import Forcing.translation_utils.
 Require Import List.
 
 Import ListNotations.
+Import MonadNotation.
+Open Scope string_scope.
 
 (* Some axioms *)
 Require Import FunctionalExtensionality.
@@ -28,9 +31,21 @@ Proof.
   intros A x P H y Heq. apply ubox. subst. apply sbox. exact H.
 Defined.
 
+Inductive sFalse : SProp :=.
+
+Inductive sTrue : SProp := I.
+
 Inductive sle : nat -> nat -> SProp :=
   sle_0 : forall n, sle 0 n
 | sle_S : forall n m : nat, sle n m -> sle (S n) (S m).
+
+(* TODO: try this definition instead *)
+Fixpoint sle_fun (n m : nat) : SProp :=
+  match n,m with
+  | 0,_ => sTrue
+  | S n, S m => sle_fun n m
+  | S m, 0 => sFalse
+  end.
 
 Definition sle_refl (n : nat) : sle n n.
 Proof.
@@ -46,6 +61,12 @@ Defined.
 Definition sle_n_m_S {n m} : sle n m -> sle (S n) (S m).
 Proof.
   intros H. constructor;exact H.
+Defined.
+
+Lemma sle_Sn_0 : forall n, sle (S n) 0 -> sFalse.
+Proof.
+  unfold Hom; intros n H.
+  inversion H.
 Defined.
 
 Definition sle_trans n m p (H : sle n m) (H': sle m  p) : sle n p.
@@ -106,12 +127,6 @@ Definition nat_cat : category :=
 
 (* The definition of [later] operator *)
 
-(* Building required context to pass to the tranlation *)
-
-Quote Recursively Definition q_def := nat_hom.
-Definition g_ctx := fst q_def.
-Definition ΣE : tsl_context:= (reconstruct_global_context g_ctx,[]).
-
 Definition f_translate (cat : category) (tsl_ctx : tsl_context) (trm : term)
   : tsl_result term :=
   Success (snd (translate true None
@@ -145,10 +160,14 @@ Definition add_translation (ctx : tsl_context) (e : global_reference * term): ts
 
 Instance GuardRec : Translation := ForcingTranslation nat_cat.
 
-Import MonadNotation.
-Open Scope string_scope.
+(* Building required context to pass to the tranlation *)
 
-Run TemplateProgram (tImplement ΣE "later" (Type->Type)).
+Run TemplateProgram (prg <- tmQuoteRec nat_hom ;;
+                     tmDefinition "g_ctx" (fst prg)).
+Definition ΣE : tsl_context:= (reconstruct_global_context g_ctx,[]).
+
+
+Run TemplateProgram (tImplementTC ΣE "later_TC" "later" (Type->Type)).
 Next Obligation.
   destruct p0.
   - apply unit.
@@ -157,36 +176,22 @@ Defined.
 
 Notation "⊳ A" := (later A) (at level 40).
 
-Quote Definition qlArr := (fun (A B : Type) => ⊳ (A -> B)).
-
-Definition tr_LArr_syn :=
-  Eval vm_compute in
-    translate true None [(ConstRef "Top.later", tConst "laterᵗ" [])] nat_cat
-                   {| Environ.env_globals := g_ctx|}
-                   tt qlArr.
-
-(* Doesn't work because of the problems with universe levels *)
-(* Make Definition lArrᵗ := Eval vm_compute in (snd tr_LArr_syn). *)
-
 Run TemplateProgram
-    (tImplementG ΣE "later_app"
+    (tImplementTC later_TC "later_app_TC" "later_app"
                  (forall A B (t : ⊳ (A -> B)) (u : ⊳ A), ⊳ B)).
 Next Obligation.
   destruct p.
   - cbv. exact tt.
-  - simpl in *. specialize X with (p0:= S p) (α := (# _)).
-    simpl in X. apply X.
-    intros q β. specialize X0 with (p0:= S q) (α:= sle_n_m_S β).
-    simpl in X0. apply X0.
+  - refine (X (S p) (# _) _). intros q β.
+    refine (X0 (S q) (sle_n_m_S β)).
 Defined.
-
 Notation "t ⊙ u" := (later_app _ _ t u) (at level 40).
 
 Run TemplateProgram
-    (tImplementG ΣE "nextp" (forall {T:Type}, T -> ⊳ T)).
+    (tImplementTC later_app_TC "nextp_TC" "nextp" (forall {T:Type}, T -> ⊳ T)).
 Next Obligation.
   destruct p.
-  -  exact tt.
+  - exact tt.
   - simpl. refine (X p _).
 Defined.
 
@@ -206,7 +211,7 @@ Inductive eqᵗ (p : nat_obj) (A : forall p0 : nat_obj, p ≥ p0 -> forall p : n
    the application would be of a special kind (of inductive type) and
    it is translated differently, not as an ordinary application of a
    global constant *)
-Definition eq_f {A: Type} (a b : A) : Prop := a = b.
+Definition eq_f {A: Type} (a b : A) := a = b.
 
 Definition eq_fᵗ := fun (p : nat_obj) (A : forall p0 : nat_obj, p ≥ p0 -> forall p1 : nat_obj, p0 ≥ p1 -> Type)
   (a b : forall (p0 : nat_obj) (α : p ≥ p0), A p0 (α ∘ (# _)) p0 (# _)) (p0 : nat_obj)
@@ -220,13 +225,75 @@ eqᵗ p0
      (fun (p2 : nat_obj) (α1 : p ≥ p2) => b p2 (α1 ∘ (# _))) p1 ((# _) ∘ (α0 ∘ α))).
 
 
-Definition eq_is_eq : forall p A (x y: forall p0 (f:p ≥ p0), A p0 f p0 (# _)),
+(* This definition will fail if we leave the type of [A] implicit. *)
+Definition eq_is_eq :
+  forall p (A : forall x : nat_obj, p ≥ x -> forall x1 : nat_obj, x ≥ x1 -> Type)
+         (x y: forall p0 (f:p ≥ p0), A p0 f p0 (# _)),
     eq x y -> eqᵗ p _ x y.
 Proof.
   intros. rewrite H. apply eq_reflᵗ.
+Qed.
+
+(* Smaller example where we get "Bad relevance" if types of some variables left out *)
+Run TemplateProgram (tTranslateTm nextp_TC "TypeT" Type).
+Definition blah1 : forall (x y :nat) f,
+    eq x y ->  TypeTᵗ x y f -> TypeTᵗ x x (# _).
+Proof.
   (* Fails with the error "Bad relevance" *)
 Abort.
 
+Definition ctx_with_eq := add_translation nextp_TC (ConstRef "Top.eq_f", tConst "eq_fᵗ" []).
+
 Run TemplateProgram
-    (tImplementG ΣE "next_id"  (forall A u, eq_f (nextp _ (fun (x : A) => x) ⊙ u) u)).
-Next Obligation. Admitted.
+    (tImplement ctx_with_eq "next_id"
+                (forall (A : Type) (u : ⊳ A),
+                    eq_f (nextp _ (fun (x : A) => x) ⊙ u) u)).
+Next Obligation.
+  apply eq_is_eq.
+  apply functional_extensionality_dep.
+  intros q. destruct q.
+  + simpl. destruct (u 0 (sle_0 p)). reflexivity.
+  + reflexivity.
+Defined.
+
+Run TemplateProgram (tImplementTC later_TC "box_TC" "Box" (Type->Type)).
+Next Obligation.
+  exact (forall p1 (α0 : p0 ≥ p1), X p1 (α0 ∘ H) p1 (# _)).
+Defined.
+
+Notation "□ A" := (Box A) (at level 40).
+
+Arguments sle_trans {_ _ _}.
+
+Lemma sle_Sn_m {n m} : sle n m -> sle n (S m).
+Proof.
+  intros H. destruct n.
+  - constructor.
+  - constructor;auto. assert (H1 : sle n (S n)) by apply sle_Sn.
+    exact (sle_trans H1 H ).
+Defined.
+
+Run TemplateProgram
+    (tImplement box_TC "fixp_"
+                (forall (T:Type), ((⊳ T) ->  T) -> □ T)).
+Next Obligation.
+  revert X. revert T.
+  induction p; intros T f q α; apply f; intros q0 α0.
+  - destruct q0.
+    + simpl. exact tt.
+    + simpl. pose (sle_Sn_0 _ (α0 ∘ α )) as s. inversion s.
+  - simpl. destruct q0.
+    + simpl. exact tt.
+    + simpl.
+      simple refine (let T' := _ :
+        forall p0 : nat_obj, p ≥ p0 -> forall p1 : nat_obj, p0 ≥ p1 -> Type in _).
+      {intros p0 α0' p1 α1. exact (T p0 (sle_Sn_m α0') p1 α1). }
+      unfold Boxᵗ,Boxᵗ_obligation_1 in *.
+      refine (IHp T' _ q0 (sle_Sn_Sm (α0 ∘ α))).
+      intros q1 α1 x. subst T'. simpl.
+      pose (f q1 (sle_Sn_m α1)) as f'. apply f'.
+      assert (H := f q1 (sle_Sn_m α1)).
+      intros.
+      exact (x p1 α2).
+      (* Not accepded because of "Bad relevance" *)
+Abort.
