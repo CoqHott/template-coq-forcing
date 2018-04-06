@@ -234,14 +234,6 @@ Proof.
   intros. rewrite H. apply eq_reflᵗ.
 Qed.
 
-(* Smaller example where we get "Bad relevance" if types of some variables left out *)
-Run TemplateProgram (tTranslateTm nextp_TC "TypeT" Type).
-Definition blah1 : forall (x y :nat) f,
-    eq x y ->  TypeTᵗ x y f -> TypeTᵗ x x (# _).
-Proof.
-  (* Fails with the error "Bad relevance" *)
-Abort.
-
 Definition ctx_with_eq := add_translation nextp_TC (ConstRef "Top.eq_f", tConst "eq_fᵗ" []).
 
 Run TemplateProgram
@@ -273,6 +265,11 @@ Proof.
     exact (sle_trans H1 H ).
 Defined.
 
+Definition s_ex_falso (f : sFalse) : forall x, x := sFalse_rect _ f.
+
+
+(* First, we construct a fixpoint going to □ T, this allows us to get
+   a more general induction hypothesis *)
 Run TemplateProgram
     (tImplement box_TC "fixp_"
                 (forall (T:Type), ((⊳ T) ->  T) -> □ T)).
@@ -281,19 +278,19 @@ Next Obligation.
   induction p; intros T f q α; apply f; intros q0 α0.
   - destruct q0.
     + simpl. exact tt.
-    + simpl. pose (sle_Sn_0 _ (α0 ∘ α )) as s. inversion s.
+    + simpl.
+      (* [destruct] doen't work here and [inversion] leads to "Bad relevance at the end." *)
+      apply (s_ex_falso (sle_Sn_0 q0 (α0 ∘ α))).
   - simpl. destruct q0.
     + simpl. exact tt.
     + simpl.
       simple refine (let T' := _ :
         forall p0 : nat_obj, p ≥ p0 -> forall p1 : nat_obj, p0 ≥ p1 -> Type in _).
-      {intros p0 α0' p1 α1. exact (T p0 (sle_Sn_m α0') p1 α1). }
-      unfold Boxᵗ,Boxᵗ_obligation_1 in *.
+      { intros p0 α0' p1 α1. exact (T p0 (sle_Sn_m α0') p1 α1). }
+      unfold Boxᵗ,Boxᵗ_obligation_1 in IHp.
       refine (IHp T' _ q0 (sle_Sn_Sm (α0 ∘ α))).
       intros q1 α1 x. subst T'. simpl.
-      pose (f q1 (sle_Sn_m α1)) as f'. apply f'.
-      assert (H := f q1 (sle_Sn_m α1)).
-      intros.
+      apply (f q1 (sle_Sn_m α1)).
+      intros p1 α2.
       exact (x p1 α2).
-      (* Not accepded because of "Bad relevance" *)
-Abort.
+Defined.
