@@ -181,8 +181,8 @@ Definition tTranslate {tsl : Translation} (ΣE : tsl_context) (id : ident)
     | DefinitionEntry {| definition_entry_type := A;
                          definition_entry_universes := univs;
                          definition_entry_body := t |} =>
-      ΣE' <- scan_globals t ΣE ;;
-      t' <- tmEval lazy (tsl_tm ΣE' t) ;;
+      (* ΣE' <- scan_globals t ΣE ;; *)
+      t' <- tmEval lazy (tsl_tm ΣE t) ;;
       match t' with
       | Error e => print_nf e ;; fail_nf ("Translation error during the translation of the body of " ++ id)
       | Success t' =>

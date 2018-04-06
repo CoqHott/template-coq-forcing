@@ -271,7 +271,7 @@ Definition s_ex_falso (f : sFalse) : forall x, x := sFalse_rect _ f.
 (* First, we construct a fixpoint going to □ T, this allows us to get
    a more general induction hypothesis *)
 Run TemplateProgram
-    (tImplement box_TC "fixp_"
+    (tImplementTC box_TC "fix_TC" "fixp_"
                 (forall (T:Type), ((⊳ T) ->  T) -> □ T)).
 Next Obligation.
   revert X. revert T.
@@ -294,3 +294,15 @@ Next Obligation.
       intros p1 α2.
       exact (x p1 α2).
 Defined.
+
+Run TemplateProgram
+    (tImplementTC fix_TC "counit_TC" "Box_counit" (forall (A:Type) , Box A -> A)).
+Next Obligation.
+  exact (X p (# _) p (# _)).
+Defined.
+
+Definition fixp : forall {T:Type}, ((⊳ T) ->  T) -> T  :=
+  fun T f => Box_counit _ (fixp_ T f).
+
+Run TemplateProgram (TC <- tTranslate counit_TC "fixp" ;;
+                     tmDefinition "fixp_TC" TC).
