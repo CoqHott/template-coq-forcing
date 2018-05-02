@@ -60,7 +60,7 @@ Definition pos_name := nNamed "p".
 Definition hom_name := nNamed "α".
 
 (** Optimization of cuts *)
-(* TODO: for now it is just ordinary tApp; could be changed if we need it later *)
+(* TODO: for now it is just an ordinary tApp; could be changed if we need it later *)
 
 Definition mkOptApp t args := tApp t args.
 (* The original OCaml inplementation  *)
@@ -103,15 +103,19 @@ Fixpoint last_internal fctx :=
 Definition last_condition fc :=
   last_internal fc.(f_context).
 
-Fixpoint gather_morphisms_internal i n fctx :=
-  if (Nat.eqb n 0) then []
+Fixpoint gather_morphisms_internal i n fctx : list nat * bool :=
+  if (Nat.eqb n 0) then ([], match fctx with [] => true | _ => false end)
   else match fctx with
-       | [] => []
+       | [] => ([], true)
        | fcVar :: fctx => gather_morphisms_internal (i + 1) (n - 1) fctx
-       | fcLift :: fctx => i :: gather_morphisms_internal (i + 2) n fctx
+       | fcLift :: fctx => let (i',b) := gather_morphisms_internal (i + 2) n fctx in
+                           (i :: i', b)
        end.
 
-Definition gather_morphisms (n : nat) (fctx : forcing_context) : list nat :=
+(** We return all the morphisms for the variable (represented as a de
+    Bruijn index). Along with that we return a boolean value, which
+    is [true] if we have traversed the focring context completely *)
+Definition gather_morphisms (n : nat) (fctx : forcing_context) : list nat * bool :=
   gather_morphisms_internal 0 (n+1) (f_context fctx).
 
 Definition top_condition (fctx : forcing_context) : nat :=
@@ -122,15 +126,8 @@ Definition top_condition (fctx : forcing_context) : nat :=
       end in
   List.fold_left fld_with fctx.(f_context) 0.
 
-Fixpoint top_is_lift (fctx : list forcing_condition) : bool :=
-  match fctx with
-  | [] => false
-  | [fcLift] => true
-  | c :: cs => top_is_lift cs
-  end.
-
 Definition morphism_var (n : nat) (fctx : forcing_context) : term :=
-  let morphs := gather_morphisms n fctx in
+  let (morphs, is_top_cond) := gather_morphisms n fctx in
   let last := tRel (last_condition fctx) in
   let cat := (f_category fctx) in
   let fold_with (accu : term) (i j : nat) :=
@@ -142,11 +139,16 @@ Definition morphism_var (n : nat) (fctx : forcing_context) : term :=
       | i :: t =>
         match t with
         (* We have to use this to handle a special case: the top level condition.
-         There are two cases: when the topmost entry in the forcing context is a lift, or a variable*)
-        | [] => let is_lift := top_is_lift fctx.(f_context) in
-                let top_rel := if is_lift then tRel (i+4) else tRel (top_condition fctx) in
-                tApp cat.(cat_comp) [top_rel; tRel (i+1); last; accu; tRel i]
-          | j :: t' => f_left t (fold_with accu i j)
+           There are two cases: we have traversed all the forcing context (i.e. is_top_cond=true), or
+           we found the variable before we traversed the whole forcing context. In first case we
+           know that the last morphism in the composition is from the top-level forcing condition *)
+        | [] =>
+          let top_rel := if is_top_cond then  tRel (top_condition fctx) else tRel (i+4) in
+          tApp cat.(cat_comp) [top_rel; tRel (i+1); last; accu; tRel i]
+          (* let is_lift := top_is_lift fctx.(f_context) in *)
+          (* let top_rel := if is_lift then tRel (i+4) else tRel (top_condition fctx) in *)
+          (* tApp cat.(cat_comp) [top_rel; tRel (i+1); last; accu; tRel i] *)
+        | j :: t' => f_left t (fold_with accu i j)
         end
       end in
   (* tVar (list_to_string fcond_to_string fctx.(f_context)). *)
