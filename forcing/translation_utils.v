@@ -123,7 +123,7 @@ Definition scan_globals `{Translation} (tm : term) (init : tsl_context) : Templa
   ( mp <- tmCurrentModPath tt ;;
     ret (add_translations init (to_ctx (undup_string_list (get_global_consts tm))))).
 
-(** Translates a given term and adds a corresponding definitions *)
+(** Translates a given term and adds corresponding definitions *)
 Definition tTranslateTm {A : Type} {tsl : Translation} (ΣE : tsl_context) (id : ident) (tm : A)
   : TemplateMonad tsl_context :=
   id' <- tmEval all (tsl_id id) ;;
@@ -151,9 +151,6 @@ Definition tTranslateTmG {A : Type} {tsl : Translation} (ΣE : tsl_context) (id 
   ΣE' <- scan_globals t ΣE ;;
   tTranslateTm ΣE' id tm.
 
-(* TODO: [tTranslate] always fetches global constants from the give definition and builds
-   a translation table. Maybe it's better to split it to two versions: the one that scans for
-   constants and the one that does not (like the original one) *)
 Definition tTranslate {tsl : Translation} (ΣE : tsl_context) (id : ident)
   : TemplateMonad tsl_context :=
   gr <- tmAbout id ;;
@@ -190,12 +187,30 @@ Definition tTranslate {tsl : Translation} (ΣE : tsl_context) (id : ident)
         let decl := {| cst_universes := univs;
                        cst_type := A; cst_body := Some t |} in
         let Σ' := add_global_decl (ConstantDecl kn decl) (fst ΣE) in
-        let E' := (ConstRef kn, tConst kn' []) :: (snd ΣE) in
+        let E' := (ConstRef kn, tConst kn' (UContext.instance (repr univs))) :: (snd ΣE) in
         print_nf  (id ++ " has been translated as " ++ id') ;;
         ret (Σ', E')
       end
     end
   end.
+
+Definition tAddExisting {tsl : Translation} (ΣE : tsl_context) (id : ident) (idᵗ : ident)
+  : TemplateMonad tsl_context :=
+  mp <- tmCurrentModPath tt ;;
+  kn <- tmEval all (mp ++ "." ++ id) ;;
+  knᵗ <- tmEval all (mp ++ "." ++ idᵗ) ;;
+  e <- tmQuoteConstant idᵗ true ;;
+    match e with
+    | ParameterEntry _ => fail_nf (id ++ "is an axiom, not a definition")
+    | DefinitionEntry {| definition_entry_type := A;
+                         definition_entry_universes := univs;
+                         definition_entry_body := t |} =>
+        let decl := {| cst_universes := univs;
+                       cst_type := A; cst_body := Some t |} in
+        let Σ' := add_global_decl (ConstantDecl kn decl) (fst ΣE) in
+        let E' := (ConstRef kn, tConst knᵗ (UContext.instance (repr univs))) :: (snd ΣE) in
+        ret (Σ', E')
+    end.
 
 Definition get_ucontext (id : kername) : TemplateMonad universe_context
   := qid <- tmQuoteConstant id false ;;
