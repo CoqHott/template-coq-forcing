@@ -1,4 +1,4 @@
-Require Import Template.monad_utils Template.Ast
+Require Import Template.monad_utils Template.Ast Template.AstUtils
         Template.Template Template.LiftSubst.
 Require Import String PeanoNat.
 Require Import Template.Checker.
@@ -173,7 +173,6 @@ Run TemplateProgram (prg <- tmQuoteRec nat_hom ;;
                      tmDefinition "g_ctx" (fst prg)).
 Definition ΣE : tsl_context:= (reconstruct_global_context g_ctx,[]).
 
-
 Run TemplateProgram (tImplementTC ΣE "later_TC" "later" (Type->Type)).
 Next Obligation.
   destruct p0.
@@ -258,7 +257,8 @@ Proof.
   intros. rewrite H. apply eq_reflᵗ.
 Qed.
 
-Definition ctx_with_eq := add_translation nextp_TC (ConstRef "Top.eq_f", tConst "eq_fᵗ" []).
+Run TemplateProgram (TC <- tAddExisting nextp_TC "eq_f" "eq_fᵗ" ;;
+                     tmDefinition "ctx_with_eq" TC).
 
 Run TemplateProgram
     (tImplement ctx_with_eq "next_id"
@@ -350,10 +350,11 @@ Proof.
 Qed.
 
 Run TemplateProgram
-    (tImplementTC fixp_TC "unfold_TC" "unfold"
+    (tImplementTC fixp_TC "unfold_TC" "unfold_fix"
                   (forall A (f: ⊳ A -> A), eq_f (fixp f) (f (nextp _ (fixp f))))).
 Next Obligation.
   unfold fixpᵗ,Box_counitᵗ,Box_counitᵗ_obligation_1.
+  (* First, we generalise the statement to make it work with arbitrary p' *)
   assert ( forall p0 (α0 : p ≥ p0) p' (α' : p0 ≥ p'),
    fixp_ᵗ p0
      (fun (p1 : nat_obj) (α : p0 ≥ p1) =>
@@ -432,4 +433,51 @@ Next Obligation.
   apply eq_is_eq.
   refine (functional_extensionality_dep _ _ (fun (p0 : nat_obj) => _)).
   exact (@functional_extensionality_dep_s (p ≥ p0) _ _ _  (fun (a : p ≥ p0) => H p0 a p0 (# p0))).
-  Qed.
+Qed.
+
+Run TemplateProgram (tImplementTC unfold_TC "switchp_TC" "switchp" ((⊳ Type) -> Type)).
+Next Obligation.
+  destruct p0.
+  - exact unit.
+  - exact (X (S p0) H p0 (# _)).
+Defined.
+
+(* Run TemplateProgram (tImplementTC unfold_TC "switchp_TC'" "switchp'" ((⊳ (⊳ Type) -> Type) -> Type)). *)
+(* Next Obligation. *)
+(*   destruct p0. *)
+(*   - exact unit. *)
+(*   - refine (X (S p0) H _ _ _). intros. *)
+(*     induction p1. *)
+(*     + reflexivity. *)
+(*     + simpl. apply IHp1. *)
+(* Defined. *)
+
+
+Run TemplateProgram (tImplementTC switchp_TC "switch_next_TC" "switch_next"
+                                  (forall (T:Type), eq_f (switchp (nextp Type T)) (⊳ T))).
+Next Obligation. reflexivity. Defined.
+
+Definition mu : (Type -> Type) -> Type.
+  intros f.
+  apply fixp.
+  apply (fun x => f (switchp x)).
+Defined.
+
+Definition mu' : (⊳Type -> Type) -> Type
+  := fun f => fixp f.
+
+Run TemplateProgram (TC <- tTranslate switchp_TC "mu" ;;
+                     tmDefinition "mu_TC" TC).
+
+Definition ap {A B} (f : A -> B) {x y} : x = y -> f x = f y.
+  destruct 1. reflexivity.
+Defined.
+
+Lemma unfold_mu : forall (f: Type -> Type), eq_f (mu f) (f (⊳ (mu f))).
+Proof.
+  intros.
+  unfold eq_f,mu.
+  rewrite unfold_fix at 1.
+  rewrite switch_next.
+  f_equal.
+Qed.
