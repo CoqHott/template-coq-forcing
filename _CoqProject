@@ -6,3 +6,4 @@ forcing/TemplateForcing.v
 forcing/Tests.v
 forcing/GRTT.v
 forcing/GRTT_SProp.v
+forcing/Stream.v
