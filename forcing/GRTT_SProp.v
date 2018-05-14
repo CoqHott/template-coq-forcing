@@ -506,21 +506,13 @@ Definition concat_inv_l {A : Type} {x y : A} (p : x = y) :
   destruct p. reflexivity. Defined.
 
 
-Definition foldp (f : Type -> Type) : mu f -> f (⊳ (mu f))
+Definition unfoldp (f : Type -> Type) : mu f -> f (⊳ (mu f))
   := @transport _ (fun x => x) _ _ (unfold_mu f).
 
-Definition unfoldp (f : Type -> Type) : f (⊳ (mu f)) -> mu f
+Definition foldp (f : Type -> Type) : f (⊳ (mu f)) -> mu f
   := @transport _ (fun x => x) _ _ (eq_sym (unfold_mu f)).
 
 Lemma fold_unfold_id f a : foldp f (unfoldp f a) = a.
-Proof.
-  unfold foldp,unfoldp.
-  rewrite transp_concat.
-  rewrite concat_inv_l.
-  reflexivity.
-Qed.
-
-Lemma unfold_fold_id f a : unfoldp f (foldp f a) = a.
 Proof.
   unfold foldp,unfoldp.
   rewrite transp_concat.
@@ -528,12 +520,20 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma unfold_fold_id f a : unfoldp f (foldp f a) = a.
+Proof.
+  unfold foldp,unfoldp.
+  rewrite transp_concat.
+  rewrite concat_inv_l.
+  reflexivity.
+Qed.
+
 Section UntypedLambda.
   Definition 𝒟 := mu (fun T : Type => T -> T).
 
-  Definition fun_ (f : ⊳𝒟 -> ⊳𝒟) : 𝒟 := unfoldp (fun T : Type => T -> T) f.
+  Definition fun_ (f : ⊳𝒟 -> ⊳𝒟) : 𝒟 := foldp (fun T : Type => T -> T) f.
 
-  Definition defun_ (f : 𝒟) : ⊳𝒟 -> ⊳𝒟 := foldp (fun T : Type => T -> T) f.
+  Definition defun_ (f : 𝒟) : ⊳𝒟 -> ⊳𝒟 := unfoldp (fun T : Type => T -> T) f.
 
   Definition switchD : ⊳𝒟 -> 𝒟 := fun t => fun_ (fun _ => t).
 
@@ -554,7 +554,7 @@ Section UntypedLambda.
 
   Lemma idD_is_id (t : 𝒟) : idD @ t = ↓ (nextp _ t).
   Proof.
-    unfold idD,applD,defun_,fun_. rewrite fold_unfold_id.
+    unfold idD,applD,defun_,fun_. rewrite unfold_fold_id.
     reflexivity.
   Qed.
 
