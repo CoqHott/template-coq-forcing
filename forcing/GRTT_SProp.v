@@ -442,17 +442,6 @@ Next Obligation.
   - exact (X (S p0) H p0 (# _)).
 Defined.
 
-(* Run TemplateProgram (tImplementTC unfold_TC "switchp_TC'" "switchp'" ((⊳ (⊳ Type) -> Type) -> Type)). *)
-(* Next Obligation. *)
-(*   destruct p0. *)
-(*   - exact unit. *)
-(*   - refine (X (S p0) H _ _ _). intros. *)
-(*     induction p1. *)
-(*     + reflexivity. *)
-(*     + simpl. apply IHp1. *)
-(* Defined. *)
-
-
 Run TemplateProgram (tImplementTC switchp_TC "switch_next_TC" "switch_next"
                                   (forall (T:Type), eq_f (switchp (nextp Type T)) (⊳ T))).
 Next Obligation. reflexivity. Defined.
@@ -473,11 +462,112 @@ Definition ap {A B} (f : A -> B) {x y} : x = y -> f x = f y.
   destruct 1. reflexivity.
 Defined.
 
-Lemma unfold_mu : forall (f: Type -> Type), eq_f (mu f) (f (⊳ (mu f))).
+Lemma unfold_mu : forall (f: Type -> Type), (mu f) = (f (⊳ (mu f))).
 Proof.
   intros.
-  unfold eq_f,mu.
+  unfold mu.
   rewrite unfold_fix at 1.
   rewrite switch_next.
   f_equal.
+Defined.
+
+Definition transport {A : Type} {F : A -> Type} {a b : A} (p : a = b) : F a -> F b.
+Proof.
+  destruct p. apply id.
+Defined.
+
+(** Concatenation of paths *)
+Definition path_concat {A : Type} {x y z : A} : x = y -> y = z -> x = z.
+  intros p q. destruct p. apply q. Defined.
+
+(** Lemma 2.3.9 in the HoTT book *)
+Definition transp_concat {A : Type} {B : A -> Type} {x y z : A} {u : B x}
+           (p : x = y) (q : y = z) :
+  transport q (transport p u) = transport (path_concat p q) u.
+  destruct p. reflexivity. Defined.
+
+(* Lemma 2.3.10 in the HoTT book *)
+Definition transp_naturality {A B : Type} {C : B -> Type} {x y : A} {f : A -> B}
+           {u : C (f x)} (p : x = y) :
+  transport (ap f p) u =  @transport _ (fun x => C (f x)) _ _ p u.
+  destruct p. reflexivity. Defined.
+
+(* Lemma 2.3.11 in the HoTT book *)
+Definition move_transport {A : Type}{F G : A -> Type}(f : forall {a : A}, F a -> G a)
+           {a a' : A} (u : F a) (p : a = a') : f (transport p u) = transport p (f u).
+  destruct p. reflexivity. Defined.
+
+Definition concat_inv_r {A : Type} {x y : A} (p : x = y) :
+  path_concat p (eq_sym p) = eq_refl.
+  destruct p. reflexivity. Defined.
+
+Definition concat_inv_l {A : Type} {x y : A} (p : x = y) :
+  path_concat (eq_sym p) p = eq_refl.
+  destruct p. reflexivity. Defined.
+
+
+Definition foldp (f : Type -> Type) : mu f -> f (⊳ (mu f))
+  := @transport _ (fun x => x) _ _ (unfold_mu f).
+
+Definition unfoldp (f : Type -> Type) : f (⊳ (mu f)) -> mu f
+  := @transport _ (fun x => x) _ _ (eq_sym (unfold_mu f)).
+
+Lemma fold_unfold_id f a : foldp f (unfoldp f a) = a.
+Proof.
+  unfold foldp,unfoldp.
+  rewrite transp_concat.
+  rewrite concat_inv_l.
+  reflexivity.
 Qed.
+
+Lemma unfold_fold_id f a : unfoldp f (foldp f a) = a.
+Proof.
+  unfold foldp,unfoldp.
+  rewrite transp_concat.
+  rewrite concat_inv_r.
+  reflexivity.
+Qed.
+
+Section UntypedLambda.
+  Definition 𝒟 := mu (fun T : Type => T -> T).
+
+  Definition fun_ (f : ⊳𝒟 -> ⊳𝒟) : 𝒟 := unfoldp (fun T : Type => T -> T) f.
+
+  Definition defun_ (f : 𝒟) : ⊳𝒟 -> ⊳𝒟 := foldp (fun T : Type => T -> T) f.
+
+  Definition switchD : ⊳𝒟 -> 𝒟 := fun t => fun_ (fun _ => t).
+
+  Notation "↓ a" := (switchD a) (at level 40).
+
+  Lemma switchD_nextp t : (↓ (nextp _ t)) = t.
+  Proof.
+    unfold switchD,fun_.
+    (* Does it hold in the same way as for switchp? *)
+  Abort.
+
+  Definition applD  : 𝒟 -> 𝒟 -> 𝒟 := fun f s => ↓ ((defun_ f) (nextp _ s)).
+  Definition applD' : 𝒟 -> ⊳𝒟 -> 𝒟 := fun f s => ↓ ((defun_ f) s).
+
+  Notation "t1 @ t2" := (applD t1 t2) (at level 40).
+
+  Definition idD := fun_ (fun x => x).
+
+  Lemma idD_is_id (t : 𝒟) : idD @ t = ↓ (nextp _ t).
+  Proof.
+    unfold idD,applD,defun_,fun_. rewrite fold_unfold_id.
+    reflexivity.
+  Qed.
+
+  Definition Ω := fun_ (fun x => nextp _ (↓x @ ↓x)).
+
+  Definition Y' f := fun_ (fun (x : ⊳𝒟) => nextp _ (f @ (↓ x @ ↓ x))).
+  Definition Y : 𝒟 := fun_ (fun f => nextp _ (Y' (↓ f) @ (Y' (↓ f)))).
+
+  Lemma Y_unfold : forall f,  (Y @ f) = (f @ (Y' f) @ (Y' f)).
+  Proof.
+    intros. f_equal.
+    unfold Y'. unfold applD,switchD,defun_,fun_.
+    unfold Y,fun_.
+  Admitted.
+
+End UntypedLambda.
