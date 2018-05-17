@@ -103,8 +103,19 @@ Fixpoint last_internal fctx :=
 Definition last_condition fc :=
   last_internal fc.(f_context).
 
+Fixpoint only_vars (fctx : list forcing_condition) : bool :=
+  match fctx with
+  | [] => true
+  | fcVar :: tl => only_vars tl
+  | fcLift :: _ => false
+  end.
+
+(* Collects all the morphisms up to a given variable.
+   Returns the resulting list along with the boolean value.
+   The boolean value is [true] if there is no morphism left in the list
+   *after* the given variable *)
 Fixpoint gather_morphisms_internal i n fctx : list nat * bool :=
-  if (Nat.eqb n 0) then ([], match fctx with [] => true | _ => false end)
+  if (Nat.eqb n 0) then ([], only_vars fctx)
   else match fctx with
        | [] => ([], true)
        | fcVar :: fctx => gather_morphisms_internal (i + 1) (n - 1) fctx
@@ -113,7 +124,7 @@ Fixpoint gather_morphisms_internal i n fctx : list nat * bool :=
        end.
 
 (** We return all the morphisms for the variable (represented as a de
-    Bruijn index). Along with that we return a boolean value, which
+    Bruijn index). Along with that, we return a boolean value, which
     is [true] if we have traversed the focring context completely *)
 Definition gather_morphisms (n : nat) (fctx : forcing_context) : list nat * bool :=
   gather_morphisms_internal 0 (n+1) (f_context fctx).
@@ -145,9 +156,6 @@ Definition morphism_var (n : nat) (fctx : forcing_context) : term :=
         | [] =>
           let top_rel := if is_top_cond then  tRel (top_condition fctx) else tRel (i+4) in
           tApp cat.(cat_comp) [top_rel; tRel (i+1); last; accu; tRel i]
-          (* let is_lift := top_is_lift fctx.(f_context) in *)
-          (* let top_rel := if is_lift then tRel (i+4) else tRel (top_condition fctx) in *)
-          (* tApp cat.(cat_comp) [top_rel; tRel (i+1); last; accu; tRel i] *)
         | j :: t' => f_left t (fold_with accu i j)
         end
       end in
@@ -165,23 +173,6 @@ Definition morphism_var (n : nat) (fctx : forcing_context) : term :=
 (*   in *)
 (* List.fold_left fold (refl fctx.category last) morphs *)
 
-
-(* Some examples to play with  *)
-Definition Obj := Type.
-Definition Hom := (fun x y => x -> y).
-Definition Id_hom := @id.
-Definition Comp := @Coq.Program.Basics.compose.
-
-Definition test_cat : category :=
-  makeCatS "Obj" "Hom" "Id_hom" "Comp".
-
-Definition test_fctx :=
-  {| f_context := [fcLift; fcLift];
-     f_category := test_cat;
-     f_translator := []|}.
-
-Eval compute in gather_morphisms 1 test_fctx.
-Eval compute in morphism_var 1 test_fctx.
 
 (** A stub for the actual evar_map definition *)
 Definition evar_map := unit.
@@ -205,15 +196,35 @@ End Environ.
 
 Definition get_var_shift n fctx :=
   let fix get n fctx :=
-    if (Nat.eqb n 0 )then 0
-    else
-      match fctx with
-    | [] => n
-    | fcVar :: fctx => 1 + get (n - 1) fctx
-    | fcLift :: fctx => 2 + get n fctx
-         end
+      if (Nat.eqb n 0 ) then 0
+      else
+        match fctx with
+        | [] => n
+        | fcVar :: fctx => 1 + get (n - 1) fctx
+        | fcLift :: fctx => 2 + get n fctx
+      end
   in
-  get (n+1) fctx.(f_context).
+  get (n + 1) fctx.(f_context).
+
+
+(* Some examples to play with  *)
+Definition Obj := Type.
+Definition Hom := (fun x y => x -> y).
+Definition Id_hom := @id.
+Definition Comp := @Coq.Program.Basics.compose.
+
+Definition test_cat : category :=
+  makeCatS "Obj" "Hom" "Id_hom" "Comp".
+
+Definition test_fctx :=
+  {| f_context := [fcLift; fcVar; fcVar];
+     f_category := test_cat;
+     f_translator := []|}.
+
+Eval compute in gather_morphisms 0 test_fctx.
+Eval compute in get_var_shift 1 test_fctx.
+Eval compute in morphism_var 1 test_fctx.
+
 
 (* We convert the result of checking for relevance in a stupid way :)
    TODO: think about the error propagation *)
@@ -271,7 +282,8 @@ Definition translate_var fctx n :=
   let p := tRel (last_condition fctx) in
   let f := morphism_var n fctx in
   let m := get_var_shift n fctx in
-  tApp (tRel (m-1)) [p; f ].
+  (* We subsrtact 1 from m because indicies start from 0 *)
+  tApp (tRel (m-1)) [p; f].
 
 (* TODO: finish with this definition when we add support for inductive definitions *)
 Definition get_inductive (fctx : forcing_context) (ind : inductive) : inductive :=
