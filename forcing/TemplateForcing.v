@@ -101,7 +101,7 @@ Fixpoint last_internal fctx :=
   end.
 
 Definition last_condition fc :=
-  last_internal fc.(f_context).
+  last_internal fc.
 
 Fixpoint only_vars (fctx : list forcing_condition) : bool :=
   match fctx with
@@ -110,36 +110,41 @@ Fixpoint only_vars (fctx : list forcing_condition) : bool :=
   | fcLift :: _ => false
   end.
 
-(* Collects all the morphisms up to a given variable.
-   Returns the resulting list along with the boolean value.
-   The boolean value is [true] if there is no morphism left in the list
-   *after* the given variable *)
-Fixpoint gather_morphisms_internal i n fctx : list nat * bool :=
-  if (Nat.eqb n 0) then ([], only_vars fctx)
-  else match fctx with
-       | [] => ([], true)
-       | fcVar :: fctx => gather_morphisms_internal (i + 1) (n - 1) fctx
-       | fcLift :: fctx => let (i',b) := gather_morphisms_internal (i + 2) n fctx in
-                           (i :: i', b)
-       end.
-
-(** We return all the morphisms for the variable (represented as a de
-    Bruijn index). Along with that, we return a boolean value, which
-    is [true] if we have traversed the focring context completely *)
-Definition gather_morphisms (n : nat) (fctx : forcing_context) : list nat * bool :=
-  gather_morphisms_internal 0 (n+1) (f_context fctx).
-
-Definition top_condition (fctx : forcing_context) : nat :=
+Definition top_condition (fctx : list forcing_condition) : nat :=
   let fld_with acc f :=
       match f with
       | fcVar => 1 + acc
       | fcLift => 2 + acc
       end in
-  List.fold_left fld_with fctx.(f_context) 0.
+  List.fold_left fld_with fctx 0.
+
+(* Collects all the morphisms up to a given variable.
+   Returns the resulting list along with the (optional) index
+   corresponding to the domian of the last morphism in the composition.
+   We return [None] if there is no morphism left in the list
+   *after* the given variable *)
+Fixpoint gather_morphisms_internal i n fctx : list nat * option nat :=
+  if (Nat.eqb n 0) then ([], match fctx with
+                             | [] => None
+                             | _  =>  if (only_vars fctx) then None
+                                      else Some (i + last_condition fctx)
+                             end)
+  else match fctx with
+       | [] => ([], None)
+       | fcVar :: fctx => gather_morphisms_internal (i + 1) (n - 1) fctx
+       | fcLift :: fctx => let (i',b) := gather_morphisms_internal (i + 2) n fctx
+                           in  (i :: i', b)
+       end.
+
+(** We return all the morphisms for the variable (represented as a de
+    Bruijn index) and index of the domain of the last morphism in the
+    comosition *)
+Definition gather_morphisms (n : nat) (fctx : forcing_context) : list nat * option nat :=
+  gather_morphisms_internal 0 (n+1) (f_context fctx).
 
 Definition morphism_var (n : nat) (fctx : forcing_context) : term :=
-  let (morphs, is_top_cond) := gather_morphisms n fctx in
-  let last := tRel (last_condition fctx) in
+  let (morphs, next_cond) := gather_morphisms n fctx in
+  let last := tRel (last_condition fctx.(f_context)) in
   let cat := (f_category fctx) in
   let fold_with (accu : term) (i j : nat) :=
       tApp cat.(cat_comp) [tRel (j+1); tRel (i+1); last; accu; tRel i] in
@@ -149,13 +154,19 @@ Definition morphism_var (n : nat) (fctx : forcing_context) : term :=
       | [] => accu
       | i :: t =>
         match t with
-        (* We have to use this to handle a special case: the top level condition.
-           There are two cases: we have traversed all the forcing context (i.e. is_top_cond=true), or
-           we found the variable before we traversed the whole forcing context. In first case we
-           know that the last morphism in the composition is from the top-level forcing condition *)
-        | [] =>
-          let top_rel := if is_top_cond then  tRel (top_condition fctx) else tRel (i+4) in
-          tApp cat.(cat_comp) [top_rel; tRel (i+1); last; accu; tRel i]
+        (* We have to use this to handle a special case: the top level
+           condition.  There are two cases: we have traversed all the
+           forcing context (i.e. next_cond=None), or we found the
+           variable before we traversed the whole forcing context (and
+           there are some morphism after the variable in the
+           context). In first case we know that the last morphism in
+           the composition is from the top-level forcing condition *)
+        | [] => let top_rel :=
+                    match next_cond with
+                    | None => tRel (top_condition fctx.(f_context))
+                    | Some i => tRel i
+                    end in
+                tApp cat.(cat_comp) [top_rel; tRel (i+1); last; accu; tRel i]
         | j :: t' => f_left t (fold_with accu i j)
         end
       end in
@@ -217,7 +228,7 @@ Definition test_cat : category :=
   makeCatS "Obj" "Hom" "Id_hom" "Comp".
 
 Definition test_fctx :=
-  {| f_context := [fcLift; fcVar; fcVar];
+  {| f_context := [fcLift; fcLift; fcVar; fcLift];
      f_category := test_cat;
      f_translator := []|}.
 
@@ -243,7 +254,7 @@ Definition from_rel_result (rl : rel_result) : relevance :=
    [extend] also takes is as a parameter *)
 Definition extend (env : Environ.env) (fctx : forcing_context) : list context_decl * forcing_context :=
   let cat := fctx.(f_category) in
-  let last := last_condition fctx in
+  let last := last_condition fctx.(f_context) in
   let g_ctx := Environ.env_globals env in
   let relevance_of_arg := from_rel_result (relevance_of_type g_ctx [] cat.(cat_obj)) in
   (* We are interested in the relevance of [hom x y] for any [x] and [y] of the appropriate type.
@@ -278,8 +289,8 @@ Definition add_variable fctx :=
 
 (** Handling of globals *)
 
-Definition translate_var fctx n :=
-  let p := tRel (last_condition fctx) in
+Definition translate_var (fctx : forcing_context) (n : nat) : term :=
+  let p := tRel (last_condition fctx.(f_context)) in
   let f := morphism_var n fctx in
   let m := get_var_shift n fctx in
   (* We subsrtact 1 from m because indicies start from 0 *)
@@ -301,7 +312,7 @@ Definition apply_global (env : Environ.env) (sigma : evar_map) gr (u : universe_
   (* The parameter [u] is never used in the definition *)
   let p' := lookup_default fctx.(f_translator) gr in
   (* let (sigma, c) := Evd.fresh_global env sigma p' in *)
-  let last := last_condition fctx in
+  let last := last_condition fctx.(f_context) in
   match gr with
   | IndRef _ => (sigma, should_not_be_ind)
   | _ => (sigma, tApp p' [ tRel last ])
@@ -332,7 +343,7 @@ Definition otranslate_type (tr : Environ.env -> forcing_context -> evar_map -> t
            (env : Environ.env) (fctx : forcing_context) (sigma : evar_map) (t : term)
   : unit * term :=
   let (sigma, t_) := tr env fctx sigma t in
-  let last := tRel (last_condition fctx) in
+  let last := tRel (last_condition fctx.(f_context)) in
   let t_ := mkOptApp t_ [ last; tApp fctx.(f_category).(cat_id) [last]] in
 (sigma, t_).
 
