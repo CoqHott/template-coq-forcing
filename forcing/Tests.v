@@ -5,6 +5,12 @@ Require Import Template.monad_utils Template.Ast
 Require Import String PeanoNat.
 Require Import Forcing.TemplateForcing.
 
+Import List.ListNotations.
+Open Scope string_scope.
+Open Scope list_scope.
+
+Import Level.
+
 (* Some examples to play with  *)
 Definition Obj := Type.
 Definition Hom := (fun x y => x -> y).

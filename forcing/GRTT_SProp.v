@@ -129,10 +129,10 @@ Quote Definition q_nat_hom := nat_hom.
 Quote Definition q_id_nat_hom := id_nat_hom.
 Quote Definition q_nat_comp := nat_comp.
 
+
+(** A category of nat with the ordering *)
 Definition nat_cat : category :=
   mkCat q_nat_obj q_nat_hom q_id_nat_hom q_nat_comp.
-
-(* The definition of [later] operator *)
 
 Definition f_translate (cat : category) (tsl_ctx : tsl_context) (trm : term)
   : tsl_result term :=
@@ -167,12 +167,14 @@ Definition add_translation (ctx : tsl_context) (e : global_reference * term): ts
 
 Instance GuardRec : Translation := ForcingTranslation nat_cat.
 
-(* Building required context to pass to the tranlation *)
+(* Building required context to pass to the translation *)
 
 Run TemplateProgram (prg <- tmQuoteRec nat_hom ;;
                      tmDefinition "g_ctx" (fst prg)).
 Definition ΣE : tsl_context:= (reconstruct_global_context g_ctx,[]).
 
+
+(** The definition of [later] operator *)
 Run TemplateProgram (tImplementTC ΣE "later_TC" "later" (Type->Type)).
 Next Obligation.
   destruct p0.
@@ -200,6 +202,12 @@ Next Obligation.
   - exact tt.
   - simpl. refine (X p _).
 Defined.
+
+Definition later_funct_arrow : forall A B, (A -> B) -> (⊳A -> ⊳B)
+  := fun _ _ x => later_app _ _ (nextp _ x).
+
+Notation "⊳_f f" := (later_funct_arrow _ _ f) (at level 40).
+
 
 Axiom functional_extensionality_dep : forall (A : Type) (B : A -> Type) (f g : forall x : A, B x), (forall x : A, f x = g x) -> f = g.
 
@@ -271,6 +279,22 @@ Next Obligation.
   + simpl. destruct (u 0 (sle_0 p)). reflexivity.
   + reflexivity.
 Defined.
+
+Run TemplateProgram (
+      TC <- tTranslate ctx_with_eq "later_funct_arrow" ;;
+      tImplementTC TC "nextp_natural_TC" "nextp_natural"
+      (forall {A B : Type} (a : A) (f : A -> B), eq_f (nextp _ (f a)) ((⊳_f f) (nextp _ a)))
+    ).
+Next Obligation.
+  apply eq_is_eq.
+  apply functional_extensionality_dep.
+  intros q.
+  apply functional_extensionality_dep_s.
+  intros α.
+  destruct q.
+  - reflexivity.
+  - reflexivity.
+Qed.
 
 Run TemplateProgram (tImplementTC ctx_with_eq "box_TC" "Box" (Type->Type)).
 Next Obligation.
@@ -541,18 +565,17 @@ Section UntypedLambda.
 
   Lemma switchD_nextp t : (↓ (nextp _ t)) = t.
   Proof.
-    unfold switchD,fun_.
+    unfold switchD.
     (* Does it hold in the same way as for switchp? *)
   Abort.
 
   Definition applD  : 𝒟 -> 𝒟 -> 𝒟 := fun f s => ↓ ((defun_ f) (nextp _ s)).
-  Definition applD' : 𝒟 -> ⊳𝒟 -> 𝒟 := fun f s => ↓ ((defun_ f) s).
 
   Notation "t1 @ t2" := (applD t1 t2) (at level 40).
 
   Definition idD := fun_ (fun x => x).
 
-  Lemma idD_is_id (t : 𝒟) : idD @ t = ↓ (nextp _ t).
+  Lemma idD_is_id (t : 𝒟) : idD @ t = t.
   Proof.
     unfold idD,applD,defun_,fun_. rewrite unfold_fold_id.
     reflexivity.
