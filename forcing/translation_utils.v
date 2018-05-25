@@ -27,7 +27,8 @@ Inductive tsl_error :=
 | NotEnoughFuel
 | TranslationNotFound (id : ident)
 | TranslationNotHandeled
-| TypingError (t : type_error).
+| TypingError (t : type_error)
+| UnexpectedError (s : string).
 
 Inductive tsl_result A :=
 | Success : A -> tsl_result A
@@ -60,7 +61,7 @@ Class Translation := { tsl_id : ident -> ident ;
                        tsl_tm : tsl_context -> term -> tsl_result term ;
                        tsl_ty : tsl_context -> term -> tsl_result term ;
                        tsl_ind : tsl_context -> kername -> kername -> mutual_inductive_body
-                            -> tsl_result (tsl_table * list mutual_inductive_body)
+                            -> tsl_result (tsl_table * mutual_inductive_entry)
                      }.
 
 
@@ -156,21 +157,23 @@ Definition tTranslateTmG {A : Type} {tsl : Translation} (ΣE : tsl_context) (id 
    constants and the one that does not (like the original one) *)
 Definition tTranslate {tsl : Translation} (ΣE : tsl_context) (id : ident)
   : TemplateMonad tsl_context :=
-  gr <- tmAbout id ;;
-  id' <- tmEval all (tsl_id id) ;;
-  mp <- tmCurrentModPath tt ;;
-  kn' <- tmEval all (mp ++ "." ++ id') ;;
+  gr <- tmAbout id ;; (* whether id is a constant, an inductive, or a constructor *)
+  id' <- tmEval all (tsl_id id) ;; (* that would be the translated name
+                                   not a great idea when it comes to mutual inductives,
+                                   because it is only the name of the first one *)
+  mp <- tmCurrentModPath tt ;; (* the current location *)
+  kn' <- tmEval all (mp ++ "." ++ id') ;; (* the path to the translated variable *)
   match gr with
-  | None => fail_nf (id ++ " not found")
-  | Some (ConstructRef (mkInd kn n) _)
+  | None => fail_nf (id ++ " not found") 
+  | Some (ConstructRef (mkInd kn n) _) (* this case really isnt handled at all *)
   | Some (IndRef (mkInd kn n)) =>
-      d <- tmQuoteInductive id ;;
-      d' <- tmEval lazy (tsl_ind ΣE kn kn' d) ;;
+      d <- tmQuoteInductive id ;; (* get the body of the inductive *)
+      d' <- tmEval lazy (tsl_ind ΣE kn kn' d) ;; (* translate the inductive. smh *)
       match d' with
       | Error e => print_nf e ;; fail_nf ("Translation error during the translation of the inductive " ++ id)
-      | Success (E, decls) =>
-        monad_fold_left (fun _ e => tmMkInductive' e) decls tt ;;
-        print_nf  (id ++ " has been translated as " ++ id') ;;
+      | Success (E, decl) =>
+        tmMkInductive decl ;;
+        print_nf  (id ++ " has been translated as " ++ id') ;; (** TODO : list translated inductive types *)
         ret (add_global_decl (InductiveDecl kn d) (fst ΣE), E ++ snd ΣE)%list
       end
 
