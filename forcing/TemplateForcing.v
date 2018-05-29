@@ -11,7 +11,8 @@ Require Import List Arith Nat.
 Require Import String.
 Require Import Template.monad_utils Template.Ast
         Template.Template Template.LiftSubst Template.Checker Template.utils
-        Template.AstUtils.
+        Template.AstUtils Template.LiftSubst.
+Require Import Forcing.translation_utils.
 Require Import Forcing.TFUtils.
 
 Import ListNotations MonadNotation.
@@ -299,10 +300,10 @@ Definition translate_var (fctx : forcing_context) (n : nat) : term :=
 (* TODO: finish with this definition when we add support for inductive definitions *)
 Definition get_inductive (fctx : forcing_context) (ind : inductive) : inductive :=
   let gr := IndRef ind in
-  let gr_ :=lookup_default fctx.(f_translator) gr in
+  let gr_ := lookup_default fctx.(f_translator) gr in
   match gr_ with
   | tInd ind_ _ => ind_
-  | _ => {| inductive_mind := "inductive translation not found"; inductive_ind := 0 |}
+  | _ => {| inductive_mind := "inductive translation not found: " ++ ind.(inductive_mind); inductive_ind := 0 |}
   end.
 
 Definition should_not_be_ind := tVar "Should not be an application of an inductive type constructor".
@@ -329,12 +330,22 @@ Definition is_prop (s : universe) :=
   | _ => false
   end.
 
-Fixpoint sep_last xs :=
+Fixpoint sep_last' {A} (xs : list A) : option (A *list A) :=
   match xs with
-    [] => (tVar "empty_list", [])
-  | hd::[] => (hd,[])
-  | hd::tl =>let (l,tl) := sep_last tl in (l,hd::tl)
+    [] => None
+  | hd::[] => Some (hd,[])
+  | hd::tl => match (sep_last' tl) with
+              | None => None
+              | Some (l,tl) => Some (l,hd::tl)
+              end
   end.
+
+Fixpoint sep_last {A} (xs : list A) : option (A *list A) :=
+  match xs with
+    [] => None
+  | hd::tl => Some (hd,tl)
+  end.
+
 
 Definition id_translate sigma c : unit * term :=
   (sigma, c).
@@ -361,52 +372,136 @@ Definition otranslate_boxed_type (tr : Environ.env -> forcing_context -> evar_ma
   let t_ := it_mkProd_or_LetIn t_ ext in
   (sigma, t_).
 
-Quote Recursively Definition q_eq := (forall A a b, eq (A:=A) a b).
+Quote Recursively Definition bazz := prod.
+Quote Definition bar := (fun (a b : nat) => a = b).
 
 Definition lookup_ind Σ ind i (u : list Level.t) (* TODO Universes *) :
-  option one_inductive_entry :=
+  option one_inductive_body :=
     match lookup_env Σ ind with
-    | Some (InductiveDecl _ mib) => nth_error (mind_body_to_entry mib).( mind_entry_inds) i
+    | Some (InductiveDecl _ mib) => nth_error mib.(ind_bodies) i
     |  _ => None
     end.
 
+Definition lookup_mind Σ ind (u : list Level.t) (* TODO Universes *) :
+  option mutual_inductive_entry :=
+    match lookup_env Σ ind with
+    | Some (InductiveDecl _ mib) => Some (mind_body_to_entry mib)
+    |  _ => None
+    end.
+
+
 Fixpoint list_init_rev {A} (n : nat) (f : nat -> A) : list A :=
   match n with
-  | O => [f 0]
-  | S n' => f (S n') :: list_init_rev n' f
+  | O => []
+  | S n' => f n' :: list_init_rev n' f
   end.
 
 Definition list_init {A} (n : nat) (f : nat -> A) : list A := List.rev (list_init_rev n f).
 
-(* Not finished attempt to port the translation for the inductive definitions *)
-(* Definition otranslate_ind tr (env : Environ.env) fctx sigma ind u args := *)
-(*   let ind_ := get_inductive fctx ind in *)
-(*   let oib' := lookup_ind (Environ.to_global_context env) ind_.(inductive_mind) ind_.(inductive_ind) [] in *)
-(*   (* let (_, oib) := Inductive.lookup_mind_specif env ind_ in *) *)
-(*   let fold sigma u := otranslate_boxed tr env fctx sigma u in *)
-(*   let (sigma, args_) := fold_map fold sigma args in *)
-(*   (** First parameter is the toplevel forcing condition *) *)
-(*   let (_, paramtyp) := match oib' with *)
-(*                        | Some t => sep_last t.(mind_entry_lc) *)
-(*                        | None => (tVar "Inductive not declared",[]) *)
-(*                        end in *)
-(*   let nparams := List.length paramtyp in *)
-(*   let last := last_condition fctx in *)
-(*   let fctx := List.fold_left (fun accu _ => add_variable accu) paramtyp fctx in *)
-(*   let (ext, fctx) := extend env fctx in *)
-(*   let mk_var n := *)
-(*     let n := nparams - n in *)
-(*     let (ext0, fctx) := extend env fctx in *)
-(*     let ans := translate_var fctx n in *)
-(*     it_mkLambda_or_LetIn ans ext0 *)
-(*   in *)
-(*   (* let (sigma, pi) := Evd.fresh_inductive_instance env sigma ind_ in *) *)
-(*   let params := list_init nparams mk_var in *)
-(*   let app := tApp (tInd ind_ []) (tRel (last_condition fctx) :: params) in *)
-(*   (* let map_p i c := Vars.substnl_decl [mkRel last] (nparams - i - 1) c in *) *)
-(*   (* let paramtyp := List.mapi map_p paramtyp in *) *)
-(*   let ans := it_mkLambda_or_LetIn app (ext ++ paramtyp)%list in *)
-(* (sigma, mkOptApp (ans, args_)). *)
+(*Ported from the OCaml implementation *)
+Fixpoint mapi {A B} (i : nat) (f : nat -> A -> B) (xs : list A) : list B :=
+  match xs with
+  | [] => []
+  | a::l => let r := f i a in r :: mapi (i + 1) f l
+  end.
+
+Definition map_local_entry (f : term -> term) (ent : local_entry) : local_entry :=
+  match ent with
+  | LocalDef t => LocalDef (f t)
+  | LocalAssum t => LocalAssum (f t)
+  end.
+
+Definition substn_decl i n (d : context_decl) : context_decl :=
+  {| decl_name := d.(decl_name);
+     decl_relevance := d.(decl_relevance);
+     decl_body := match d.(decl_body) with None => None | Some t => Some (subst i n t) end;
+     decl_type := subst i n d.(decl_type) |}.
+
+
+Definition dummy_ctx_decl : context_decl :=
+  {| decl_name := nAnon;
+     decl_relevance := Relevant;
+     decl_body := None;
+     decl_type := tVar "Inductive not declared"|}.
+
+  Fixpoint decompose_prod_r (t : term) : (list name * list relevance * list term) * term :=
+  match t with
+  | tProd n r A B =>
+    let (nrAs, B) := decompose_prod_r B in
+    match nrAs with
+    | (ns, rs, As) => (n :: ns, r :: rs, A :: As, B)
+    end
+  | _ => ([], [], [], t)
+  end.
+
+  Fixpoint zip3_with {A B C D : Type} (xs : list A) (ys : list B) (zs : list C)
+           (f : A -> B -> C -> D)
+    : list D :=
+    match xs,ys,zs with
+    | [],_,_ => []
+    | _,[],_ => []
+    | _,_,[] => []
+    | x :: xs', y :: ys', z :: zs' => f x y z :: zip3_with xs' ys' zs' f
+    end.
+
+  Definition to_rel_context (ns : list name) (rs : list relevance) (tys : list term) :=
+    let vars := zip3_with ns rs tys (fun a b c => (a,b,c)) in
+    let fn p := match p with
+                  | (nam,r,ty) => {| decl_name := nam;
+                                     decl_relevance := r;
+                                     decl_body := None;
+                                     decl_type := ty |}
+                end in
+    List.map fn vars.
+
+Definition otranslate_ind
+           (tr : Environ.env -> forcing_context -> evar_map -> term -> unit * term)
+           (env : Environ.env) (fctx : forcing_context) (sigma :evar_map) (ind : inductive) (u : universe_instance) (args : list term) :=
+  let ind_ := get_inductive fctx ind in
+  let oib' := lookup_ind (Environ.to_global_context env) ind_.(inductive_mind) ind_.(inductive_ind) [] in
+   let fold sigma t := otranslate_boxed tr env fctx sigma t in
+  let fix fold_map_fix a args :=
+      match args with
+      | [] => (a, [])
+      | hd :: tl =>
+        let (a_, c_) := fold sigma hd in
+        let (a__, cs) := fold_map_fix a_ tl in
+        (a__, c_ :: cs)
+      end in
+  let (sigma, args_) := fold_map_fix sigma args in
+  let ind_ctx ind := match (decompose_prod_r ind.(ind_type)) with
+                     | (ns,rs,tys,_) => to_rel_context ns rs tys
+                     end
+  in
+  let all_params :=
+      match oib' with
+      | Some t => ind_ctx t
+      | None => [dummy_ctx_decl]
+      end
+  in
+  (** First parameter is the toplevel forcing condition *)
+  let (_, paramtyp) :=
+      match oib' with
+      | Some t => option_get (dummy_ctx_decl,[]) (sep_last all_params)
+      | None => (dummy_ctx_decl,[dummy_ctx_decl])
+      end in
+  let nparams := List.length paramtyp in
+  let last := last_condition fctx.(f_context) in
+  let fctx := List.fold_left (fun accu _ => add_variable accu) paramtyp fctx in
+  let (ext, fctx) := extend env fctx in
+  let mk_var n :=
+    let m := nparams - n - 1 in
+    let (ext0, fctx) := extend env fctx in
+    let ans := translate_var fctx m in
+    it_mkLambda_or_LetIn ans ext0
+  in
+  let params := list_init nparams mk_var in
+  let app := tApp (tInd ind_ u) (tRel (last_condition fctx.(f_context)) :: params) in
+  let map_p i c := substn_decl (tRel last) (nparams - i - 1) c in
+  let paramtyp' := List.rev paramtyp in
+  let paramtyp_subst := mapi 0 map_p paramtyp' in
+  let ans := it_mkLambda_or_LetIn app (ext ++ paramtyp_subst)%list in
+  (sigma, mkOptApp ans args_).
 
 Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
          (sigma : evar_map) (c : term) {struct c} : evar_map * term :=
@@ -461,29 +556,24 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
   let ufctx := add_variable fctx in
   let (sigma, u_) := otranslate env ufctx sigma u in
   (sigma, tLetIn na r c_ t_ u_)
-(* Comment out the case for inductive types for now *)
-(* | tApp t args when isInd t => *)
-(*   let (ind, u) := destInd t in *)
-(*   otranslate_ind env fctx sigma ind u args *)
+| tApp (tInd t u) args  => otranslate_ind otranslate env fctx sigma t [] args
 | tApp t args =>
   let (sigma, t_) := otranslate env fctx sigma t in
   let fold sigma u := otranslate_boxed otranslate env fctx sigma u in
   (* implementing a specialised version of fold_map' from ftUtils as a nested fix *)
   let fix fold_map_fix a args :=
-               match args with
-               | [] => (a, [])
-               | hd :: tl =>
-                 let (a_, c_) := fold sigma hd in
-                 let (a__, cs) := fold_map_fix a_ tl in
-                 (a__, c_ :: cs)
-               end in
+      match args with
+      | [] => (a, [])
+      | hd :: tl =>
+        let (a_, c_) := fold sigma hd in
+        let (a__, cs) := fold_map_fix a_ tl in
+        (a__, c_ :: cs)
+      end in
   let (sigma, args_) := fold_map_fix sigma args in
-
   (* the original OCaml code *)
   (* let fold sigma u = otranslate_boxed env fctx sigma u in *)
   (* let (sigma, args_) = CArray.fold_map fold sigma args in *)
-  let app := tApp t_ args_ in
-  (sigma, app)
+  let app := tApp t_ args_ in  (sigma, app)
 | tVar id => (sigma, not_supported)
   (* apply_global env sigma (VarRef id) Univ.Instance.empty fctx *)
 | tConst p u =>  apply_global env sigma (ConstRef p) u fctx
@@ -566,3 +656,37 @@ Definition translate_type (toplevel : bool) lift translator cat env sigma c :=
 
 Definition translate_type_simple (toplevel : bool) (cat : category) (c : term) : term :=
   let (_, c_) := translate_type toplevel None [] cat Environ.empty_env tt c in c_.
+
+
+(* A bridge to the monadic translation utils *)
+
+Definition f_translate (cat : category) (tsl_ctx : tsl_context) (trm : term)
+  : tsl_result term :=
+  Success (snd (translate true None
+                          (snd tsl_ctx)
+                          cat
+                          ({| Environ.env_globals := (fst (fst tsl_ctx)) |})
+                          tt
+                          trm)).
+
+Definition f_translate_type (cat : category) (tsl_ctx : tsl_context) (trm : term)
+  : tsl_result term :=
+  Success (snd (translate_type true None
+                               (snd tsl_ctx)
+                               cat
+                               ({| Environ.env_globals := (fst (fst tsl_ctx)) |})
+                               tt
+                               trm)).
+
+Definition ForcingTranslation (cat : category) : Translation :=
+  {| tsl_id := tsl_ident;
+     tsl_tm := f_translate cat;
+     tsl_ty := f_translate_type cat;
+     tsl_ind := fun _ _ _ _ => Error TranslationNotHandeled;
+     (* tsl_context -> kername -> kername -> mutual_inductive_body *)
+     (*             -> tsl_result (tsl_table * list mutual_inductive_body) *)
+  |}.
+
+Definition add_translation (ctx : tsl_context) (e : global_reference * term): tsl_context :=
+  let (Σ, E) := ctx in
+  (Σ, e :: E).

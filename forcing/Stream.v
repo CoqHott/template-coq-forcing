@@ -3,6 +3,8 @@ Require Import Template.monad_utils Template.Ast Template.AstUtils
 Require Import Forcing.translation_utils.
 Require Import Forcing.GRTT_SProp.
 
+Import Later Fix.
+
 Definition stream (A : Type) := mu (fun X => A * X)%type.
 
 Definition stcons {A: Type} (a : A) (S : ⊳ stream A) := foldp _ (a,S).

@@ -194,23 +194,39 @@ Definition tTranslate {tsl : Translation} (ΣE : tsl_context) (id : ident)
     end
   end.
 
-Definition tAddExisting {tsl : Translation} (ΣE : tsl_context) (id : ident) (idᵗ : ident)
+Definition tAddExistingConst {tsl : Translation} (ΣE : tsl_context) (id : ident) (idᵗ : ident)
   : TemplateMonad tsl_context :=
   mp <- tmCurrentModPath tt ;;
   kn <- tmEval all (mp ++ "." ++ id) ;;
   knᵗ <- tmEval all (mp ++ "." ++ idᵗ) ;;
   e <- tmQuoteConstant idᵗ true ;;
-    match e with
-    | ParameterEntry _ => fail_nf (id ++ "is an axiom, not a definition")
-    | DefinitionEntry {| definition_entry_type := A;
-                         definition_entry_universes := univs;
-                         definition_entry_body := t |} =>
-        let decl := {| cst_universes := univs;
-                       cst_type := A; cst_body := Some t |} in
-        let Σ' := add_global_decl (ConstantDecl kn decl) (fst ΣE) in
-        let E' := (ConstRef kn, tConst knᵗ (UContext.instance (repr univs))) :: (snd ΣE) in
-        ret (Σ', E')
-    end.
+  match e with
+  | ParameterEntry _ => fail_nf (id ++ "is an axiom, not a definition")
+  | DefinitionEntry {| definition_entry_type := A;
+                       definition_entry_universes := univs;
+                       definition_entry_body := t |} =>
+    let decl := {| cst_universes := univs;
+                   cst_type := A; cst_body := Some t |} in
+    let Σ' := add_global_decl (ConstantDecl kn decl) (fst ΣE) in
+    let E' := (ConstRef kn, tConst knᵗ (UContext.instance (repr univs))) :: (snd ΣE) in
+    ret (Σ', E')
+  end.
+
+Definition tAddExistingInd {tsl : Translation} (ΣE : tsl_context) (id : ident) (idᵗ : ident)
+  : TemplateMonad tsl_context :=
+  mp <- tmCurrentModPath tt ;;
+  (* kn <- tmEval all (mp ++ "." ++ id) ;; *)
+  (* knᵗ <- tmEval all (mp ++ "." ++ idᵗ) ;; *)
+  e <- tmQuoteInductive id ;;
+  eᵗ <- tmQuoteInductive idᵗ ;;
+  let Σ' := add_global_decl (InductiveDecl id e) (fst ΣE) in
+  let Σ'' := add_global_decl (InductiveDecl idᵗ eᵗ) (fst ΣE) in
+  let ind := mkInd id 0 in
+  let indᵗ := mkInd idᵗ 0 in
+  let E' := (IndRef ind,
+             tInd indᵗ (UContext.instance (repr e.(ind_universes)))) :: (snd ΣE) in
+  ret (Σ'', E').
+
 
 Definition get_ucontext (id : kername) : TemplateMonad universe_context
   := qid <- tmQuoteConstant id false ;;

@@ -25,8 +25,8 @@ Definition lookup_default (E : tsl_table) (gr : global_reference)
   : term :=
   match (lookup_tsl_table E gr) with
   | None => match gr with
-              | ConstRef n => tVar ("Not_found_" ++ n)
-              | _ => default_term
+            | ConstRef n => tVar ("Not_found_" ++ n)
+            | _ => default_term
             end
   | Some t => t
   end.
