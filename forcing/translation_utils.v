@@ -164,11 +164,11 @@ Definition tTranslate {tsl : Translation} (ΣE : tsl_context) (id : ident)
   mp <- tmCurrentModPath tt ;; (* the current location *)
   kn' <- tmEval all (mp ++ "." ++ id') ;; (* the path to the translated variable *)
   match gr with
-  | None => fail_nf (id ++ " not found") 
+  | None => fail_nf (id ++ " not found")
   | Some (ConstructRef (mkInd kn n) _) (* this case really isnt handled at all *)
   | Some (IndRef (mkInd kn n)) =>
       d <- tmQuoteInductive id ;; (* get the body of the inductive *)
-      d' <- tmEval lazy (tsl_ind ΣE kn kn' d) ;; (* translate the inductive. smh *)
+      d' <- tmEval lazy (tsl_ind ΣE kn kn' d) ;; (* translate the inductive *)
       match d' with
       | Error e => print_nf e ;; fail_nf ("Translation error during the translation of the inductive " ++ id)
       | Success (E, decl) =>

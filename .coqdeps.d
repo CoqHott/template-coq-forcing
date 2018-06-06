@@ -4,6 +4,8 @@ forcing/translation_utils.vo forcing/translation_utils.glob forcing/translation_
 forcing/translation_utils.vio: forcing/translation_utils.v
 forcing/TemplateForcing.vo forcing/TemplateForcing.glob forcing/TemplateForcing.v.beautified: forcing/TemplateForcing.v forcing/TFUtils.vo
 forcing/TemplateForcing.vio: forcing/TemplateForcing.v forcing/TFUtils.vio
+forcing/Inductives.vo forcing/Inductives.glob forcing/Inductives.v.beautified: forcing/Inductives.v forcing/TemplateForcing.vo forcing/translation_utils.vo forcing/TFUtils.vo
+forcing/Inductives.vio: forcing/Inductives.v forcing/TemplateForcing.vio forcing/translation_utils.vio forcing/TFUtils.vio
 forcing/Tests.vo forcing/Tests.glob forcing/Tests.v.beautified: forcing/Tests.v forcing/TemplateForcing.vo
 forcing/Tests.vio: forcing/Tests.v forcing/TemplateForcing.vio
 forcing/GRTT.vo forcing/GRTT.glob forcing/GRTT.v.beautified: forcing/GRTT.v forcing/TemplateForcing.vo
