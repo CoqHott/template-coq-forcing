@@ -250,7 +250,7 @@ Fixpoint eta_reduce (t : term) : term :=
       | (tRel 0)::tl =>
         let args' := List.rev tl in
         if andb_list (List.map (noccurn 0) (f::args')) then
-          (mkApps f args') {0 := (tVar "dummy var")}
+          (mkApps f args') {0 := (tConst "dummy var" [])}
 	else
           map_constr eta_reduce t
       | _ => map_constr eta_reduce t
@@ -264,13 +264,12 @@ Fixpoint eta_reduce (t : term) : term :=
 Fixpoint extend_tsl_table (names : list ident) (tbl : tsl_table) :=
   match names with
   | [] => tbl
-  | hd::tl => extend_tsl_table tl ((ConstRef hd, tConst (tsl_ident hd) [])::tbl)
+  | hd::tl => extend_tsl_table tl ((ConstRef hd, tConst hd [])::tbl)
   end.
 
-(* now to translate a single constructor
-   as before, env should probably already contain the parameters of the mutual_inductive_body
-   it should probably also contain a translation for the name of the one_inductive_body *)
+(* translation of the constructors list *)
 (* the context for constructors is : 0 ~ n parameters, n+1 ~ n+k inductives *)
+(* if this stack overflows, look for open terms passed to reduce *)
 Definition f_translate_lc_list (tsl_ctx : tsl_context) (cat : category)
            (env : Environ.env) (σ : evar_map) (n_params : nat) (lc : list term)
            (substfn : list (ident * term)) (invsubst : list ident)
@@ -284,8 +283,11 @@ Definition f_translate_lc_list (tsl_ctx : tsl_context) (cat : category)
       fun (m : tsl_result (evar_map * list term)) typ =>
         acc <- m ;;
         let (σ, tail) := acc : evar_map * list term in
+        (* lift all free variables in the type to account for insertion of a new parameter
+         i think this corresponds to the trick with envtr in the ocaml plugin ? *)
+        let typ := up typ in
         (* replace the indices for oib's with their names *)
-        let typ := substnl (map tVar invsubst) n_params typ in
+        let typ := substnl (map (fun x => tConst x []) invsubst) (S n_params) typ in
         let (σ, typ) := translate_type false None tsl_tbl cat env σ typ in
         (* replace the names of oib's with their translation *)
         let typ := replace_consts substfn typ in
@@ -295,8 +297,8 @@ Definition f_translate_lc_list (tsl_ctx : tsl_context) (cat : category)
                | TypeError e => Error (TypingError e)
                end ;;
         (* put indices back *)
-        let typ' := substn_consts (n_params + 1) invsubst typ' in (** TODO adjust value *)
-        let typ' := eta_reduce typ' in
+        let typ' := substn_consts (S n_params) invsubst typ' in
+        let typ' := eta_reduce typ' in (* we need clean parameters for the constructor to be well formed *)
         (** ocaml code for universe handling (?) *)
         (* let envtyp_ = Environ.push_rel_context [Name (Nameops.add_suffix body.mind_typename "_f"),None, *)
         (*       				  it_mkProd_or_LetIn arity params] env in *)
