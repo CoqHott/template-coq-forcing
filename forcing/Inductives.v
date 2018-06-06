@@ -32,6 +32,7 @@ Definition decompose_prod_n (n : nat) (tm : term) :=
   in
   aux [] n tm.
 
+(* Decomposes completely a product type into (typed arguments) * body *)
 Definition decompose_prod (tm : term) :=
   let fix aux param tm :=
       match tm with
@@ -42,49 +43,20 @@ Definition decompose_prod (tm : term) :=
   in
   aux [] tm.
 
+(* Rebuilds a previously decomposed product type *)
 Fixpoint compose_prod param tm :=
   match param with
   | nil => tm
   | (na, r, t)::tail => compose_prod tail (tProd na r t tm)
   end.
 
-(** ************** **
- **  Test section  **
- ** ************** **)
-
-Inductive test0 (n : nat) : Type -> Prop :=
-| c0 : test1 n Set -> test0 n Prop
-with test1 (n : nat) : Type -> Prop :=
-     | c1 : test0 n Prop -> test1 n Set.
-
-Inductive test2 (a : Type) : nat -> Type :=
-| c2 : forall n : nat, test2 a n.
-
-Quote Definition test3 := (Prop -> Set -> Type).
-
-Eval compute in (let (α, β) := decompose_prod test3 in compose_prod α β).
-
-Monomorphic Inductive list1 (A : Type) := (* Template polymorphic *)
-| empty1 : list1 A
-| cons1 : A -> list1 A -> list1 A.
-
-Polymorphic NonCumulative Inductive list2 (A : Type) := (* Universe polymorphic *)
-| empty2 : list2 A
-| cons2 : A -> list2 A -> list2 A.
-
-Polymorphic Cumulative Inductive list3 (A : Type) := (* Something more ? *)
-| empty3 : list3 A
-| cons3 : A -> list3 A -> list3 A.
-
-Polymorphic Definition id {A : Type} (x : A) := x.
-Set Printing Universes.
-Check (id id).
-
-Run TemplateProgram (α <- tmQuoteInductive "list3" ;;
-                       β <- tmEval lazy (mind_body_to_entry α) ;;
-                       tmPrint α).
-
-(** End of test section *)
+(* Generates a context for reduction with n assumtions of a random type. *)
+(* This is used to close terms before sending them to reduce *)
+Fixpoint dummy_context (n : nat) :=
+  match n with
+  | 0 => []
+  | S n' => (dummy_context n') ,, (vass nAnon Relevant (tConst "dummy var" []))
+  end.
 
 (* translates the arity of a one_inductive_body. env should contain the parameters of
  the mutual_inductive_body *)
