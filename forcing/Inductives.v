@@ -68,9 +68,9 @@ Definition f_translate_arity (tsl_ctx : tsl_context) (cat : category)
   let n_indices := length l in
   let (σ, arity') := translate_type false None (snd tsl_ctx) cat env σ arity in
   (* now reduce the β-redexes *)
-  (* using (fst (fst tsl_ctx)) as global_declarations in hnf_stack allows to reduce things like
+  (* using (fst (fst tsl_ctx)) as global_declarations in reduce allows to reduce things like
      morphisms of the category. I dont think we actually want that *)
-  arity' <- match reduce [] [] arity' with
+  arity' <- match reduce [] (dummy_context 1) arity' with
            | Checked a => ret a
            | TypeError e => Error (TypingError e)
            end ;;
@@ -278,6 +278,8 @@ Definition f_translate_lc_list (tsl_ctx : tsl_context) (cat : category)
   (* put names of inductives inside tsl_tbl, so that the translation function will
      be able to recognize them *)
   let tsl_tbl := extend_tsl_table invsubst (snd tsl_ctx) in
+  (* put arguments in the context (with dummy type because they are not necessary) *)
+  let reduction_ctxt := dummy_context (S (S n_params)) in
   let f_translate_lc :=
       fun (m : tsl_result (evar_map * list term)) typ =>
         acc <- m ;;
@@ -288,7 +290,7 @@ Definition f_translate_lc_list (tsl_ctx : tsl_context) (cat : category)
         (* replace the names of oib's with their translation *)
         let typ := replace_consts substfn typ in
         let typ := reduce_compositions (snd (fst tsl_ctx)) cat typ in
-        typ' <- match reduce [] [] typ with
+        typ' <- match reduce [] reduction_ctxt typ with
                | Checked typ => ret typ
                | TypeError e => Error (TypingError e)
                end ;;
