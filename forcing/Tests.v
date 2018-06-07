@@ -122,36 +122,3 @@ Run TemplateProgram (tTranslate ctx_with_prod "prod_").
 
 Lemma prod_tr_eq : prod_ᵗ = prod_app_t.
 Proof. reflexivity. Qed.
-
-Inductive listᵗ (p : Obj) (A : forall p0 : Obj, p ≥ p0 -> forall p : Obj, p0 ≥ p -> Type) : Type :=
-    nilᵗ : listᵗ p A
-  | consᵗ : (forall (p0 : Obj) (α : p ≥ p0), A p0 α p0 (# _)) ->
-            (forall (p0 : Obj) (α : p ≥ p0),
-                listᵗ p0 (fun (p' : Obj) (α0 : p0 ≥ p') => A p' (α0 ∘ α))) ->
-            listᵗ p A.
-
-Inductive natᵗ (p : Obj) : Type :=
-  Oᵗ : natᵗ p
-| Sᵗ : (forall p0 : Obj, p ≥ p0 -> natᵗ p0) -> natᵗ p.
-
-Inductive Falseᵗ (p : Obj) : Type := .
-
-Inductive andᵗ (p : Obj) (A B : forall p0 : Obj, p ≥ p0 -> forall p : Obj, p0 ≥ p -> Prop) : Prop :=
-    conjᵗ : (forall (p0 : Obj) (α : p ≥ p0), A p0 α p0 (# _)) ->
-            (forall (p0 : Obj) (α : p ≥ p0), B p0 α p0 (# _)) -> andᵗ p A B.
-
-Definition and_f : Prop -> Prop -> Type := fun a b => and a b.
-
-Definition and_fᵗ
-  : forall p : Obj, (forall p0 : Obj, p ≥ p0 -> forall p1 : Obj, p0 ≥ p1 -> Prop) ->
-                    (forall p0 : Obj, p ≥ p0 -> forall p1 : Obj, p0 ≥ p1 -> Prop) ->
-                    forall p0 : Obj, p ≥ p0 -> Prop
-  := fun (p : Obj) (a b : forall p0 : Obj, p ≥ p0 -> forall p1 : Obj, p0 ≥ p1 -> Prop)
-  (p0 : Obj) (α : p ≥ p0) => andᵗ p0  (fun (p1 : Obj) (α0 : p0 ≥ p1) =>
-   (fun (p2 : Obj) (α1 : p ≥ p2) => a p2 (α1 ∘ (# _))) p1 (α0 ∘ (α ∘ (# _))))
-  (fun (p1 : Obj) (α0 : p0 ≥ p1) =>
-   (fun (p2 : Obj) (α1 : p ≥ p2) => b p2 (α1 ∘ (# _))) p1 (α0 ∘ (α ∘ (# _)))).
-
-Inductive orᵗ (p : Obj) (A B : forall p0 : Obj, p ≥ p0 -> forall p : Obj, p0 ≥ p -> Prop) : Prop :=
-    or_introlᵗ : (forall (p0 : Obj) (α : p ≥ p0), A p0 α p0 (# _)) -> orᵗ p A B
-  | or_introrᵗ : (forall (p0 : Obj) (α : p ≥ p0), B p0 α p0 (# _)) -> orᵗ p A B.

@@ -297,6 +297,7 @@ Definition translate_var (fctx : forcing_context) (n : nat) : term :=
   (* We subsrtact 1 from m because indicies start from 0 *)
   tApp (tRel (m-1)) [p; f].
 
+(* TODO: finish with this definition when we add support for inductive definitions *)
 Definition get_inductive (fctx : forcing_context) (ind : inductive) : inductive :=
   let gr := IndRef ind in
   let gr_ := lookup_default fctx.(f_translator) gr in
@@ -453,19 +454,12 @@ Definition dummy_ctx_decl : context_decl :=
                 end in
     List.map fn vars.
 
-(** Builds a translation for the inductive type occuring in the term.
-    Assumes that the type itself is prevously translated and added to
-    the translation table and to the global context *)
 Definition otranslate_ind
            (tr : Environ.env -> forcing_context -> evar_map -> term -> unit * term)
            (env : Environ.env) (fctx : forcing_context) (sigma :evar_map) (ind : inductive) (u : universe_instance) (args : list term) :=
-  (* Looking up in the translation table *)
   let ind_ := get_inductive fctx ind in
-  (* Looking up in the global environment for the actual body of the translated inductive *)
-  let oib' := lookup_ind (Environ.to_global_context env)
-                         ind_.(inductive_mind) ind_.(inductive_ind) [] in
-  (* Translating arguments *)
-  let fold sigma t := otranslate_boxed tr env fctx sigma t in
+  let oib' := lookup_ind (Environ.to_global_context env) ind_.(inductive_mind) ind_.(inductive_ind) [] in
+   let fold sigma t := otranslate_boxed tr env fctx sigma t in
   let fix fold_map_fix a args :=
       match args with
       | [] => (a, [])
@@ -475,7 +469,6 @@ Definition otranslate_ind
         (a__, c_ :: cs)
       end in
   let (sigma, args_) := fold_map_fix sigma args in
-  (* Recovering a context consisting of parameters and indices of the given inductive type *)
   let ind_ctx ind := match (decompose_prod_r ind.(ind_type)) with
                      | (ns,rs,tys,_) => to_rel_context ns rs tys
                      end
@@ -495,7 +488,6 @@ Definition otranslate_ind
   let nparams := List.length paramtyp in
   let last := last_condition fctx.(f_context) in
   let fctx := List.fold_left (fun accu _ => add_variable accu) paramtyp fctx in
-  (* We extend the focring context with a new lift *)
   let (ext, fctx) := extend env fctx in
   let mk_var n :=
     let m := nparams - n - 1 in
@@ -504,10 +496,7 @@ Definition otranslate_ind
     it_mkLambda_or_LetIn ans ext0
   in
   let params := list_init nparams mk_var in
-  (* Now, we apply the translation of the inductive type to a new forcing condition *)
   let app := tApp (tInd ind_ u) (tRel (last_condition fctx.(f_context)) :: params) in
-  (* We have to substitute the focring condition which was the last one
-     before we extended the forcing conetxt *)
   let map_p i c := substn_decl (tRel last) (nparams - i - 1) c in
   let paramtyp' := List.rev paramtyp in
   let paramtyp_subst := mapi 0 map_p paramtyp' in
@@ -567,7 +556,7 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
   let ufctx := add_variable fctx in
   let (sigma, u_) := otranslate env ufctx sigma u in
   (sigma, tLetIn na r c_ t_ u_)
-| tApp (tInd t u) args  => otranslate_ind otranslate env fctx sigma t u args
+| tApp (tInd t u) args  => otranslate_ind otranslate env fctx sigma t [] args
 | tApp t args =>
   let (sigma, t_) := otranslate env fctx sigma t in
   let fold sigma u := otranslate_boxed otranslate env fctx sigma u in
@@ -585,11 +574,13 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
   (* let fold sigma u = otranslate_boxed env fctx sigma u in *)
   (* let (sigma, args_) = CArray.fold_map fold sigma args in *)
   let app := tApp t_ args_ in  (sigma, app)
-| tVar id => (* [VarRef] is not defined as a constuctor for [global_reference] in Template Coq *)
-  (sigma, not_supported)
-  (* apply_global env sigma (VarRef id) Instance.empty fctx *)
+| tVar id => (sigma, not_supported)
+  (* apply_global env sigma (VarRef id) Univ.Instance.empty fctx *)
 | tConst p u =>  apply_global env sigma (ConstRef p) u fctx
-| tInd ind u => otranslate_ind otranslate env fctx sigma ind u []
+| tInd ind u =>
+  (* Comment out the case for inductive types for now *)
+  (sigma, tVar "Inductive definitions are not supported")
+  (* otranslate_ind env fctx sigma ind u [||] *)
 | tConstruct c u _ => (sigma, not_supported)
   (* apply_global env sigma (ConstructRef c) u fctx *)
 | tCase ci rel r c p => (sigma, not_supported)
