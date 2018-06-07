@@ -58,19 +58,115 @@ Fixpoint dummy_context (n : nat) :=
   | S n' => (dummy_context n') ,, (vass nAnon Relevant (tConst "dummy var" []))
   end.
 
+Definition dummy_fctx translator cat n :=
+  let ctx := [] : list forcing_condition in
+  let empty := {| f_context := []; f_category := cat; f_translator := translator; |} in
+  let fix aux n acc :=
+      match n with
+      | 0 => acc
+      | S n' => aux n' (add_variable acc)
+      end
+  in
+  aux n empty.
+
+(* applies f to all the subterms of t, without any recursion *)
+Definition map_constr (f : term -> term) (t : term) : term :=
+    match t with
+    | tRel i => t
+    | tEvar ev args => tEvar ev (List.map f args)
+    | tLambda na r T M => tLambda na r (f T) (f M)
+    | tApp u v => tApp (f u) (List.map f v)
+    | tProd na r A B => tProd na r (f A) (f B)
+    | tCast c kind t => tCast (f c) kind (f t)
+    | tLetIn na r b t b' => tLetIn na r (f b) (f t) (f b')
+    | tCase ind r p c brs =>
+      let brs' := List.map (on_snd f) brs in
+      tCase ind r (f p) (f c) brs'
+    | tProj p c => tProj p (f c)
+    | tFix mfix idx =>
+      let mfix' := List.map (map_def f) mfix in
+      tFix mfix' idx
+    | tCoFix mfix k =>
+      let mfix' := List.map (map_def f) mfix in
+      tCoFix mfix' k
+    | x => x
+    end.
+
+(* reduces all [shallow] redexes of the form (id ∘ f) or (f ∘ id) to f *)
+Fixpoint reduce_compositions (ug : uGraph.t) (cat : category) (t : term) : term :=
+  match t with
+  | tApp u (_::_::_::α1::α2::nil) =>
+    if eq_term ug cat.(cat_comp) u then
+      let is_id := fun x => match x with
+                        | tApp v _ => if eq_term ug cat.(cat_id) v then true else false
+                        | _ => false
+                        end
+      in
+      if is_id α1 then
+        reduce_compositions ug cat α2
+      else if is_id α2 then
+        reduce_compositions ug cat α1
+      else
+        map_constr (reduce_compositions ug cat) t
+    else
+      map_constr (reduce_compositions ug cat) t
+  | _ => map_constr (reduce_compositions ug cat) t
+  end.
+
+Definition andb_list l := fold_left (fun acc b => andb acc b) l true.
+
+(* returns true if the variable with de Bruijn index n does not occur in t *)
+Fixpoint noccurn (n : nat) (t : term) : bool :=
+  match t with
+  | tRel m => negb (eq_nat n m)
+  | tVar _ | tSort _ | tConst _ _ | tInd _ _ | tConstruct _ _ _ | tMeta _ => true
+  | tEvar _ tl => andb_list (List.map (noccurn n) tl)
+  | tCast t1 _ t2 => (noccurn n t1) && (noccurn n t2)
+  | tProd _ _ t1 t2 => (noccurn n t1) && (noccurn (S n) t2)
+  | tLambda _ _ t1 t2 => (noccurn n t1) && (noccurn (S n) t2)
+  | tLetIn _ _ t1 t2 t3 => (noccurn n t1) && (noccurn n t2) && (noccurn (S n) t3)
+  | tApp t tl => (noccurn n t) && (andb_list (List.map (noccurn n) tl))
+  | tCase _ _ t1 t2 tl => (noccurn n t1) && (noccurn n t2) && (andb_list (List.map (fun t => noccurn n (snd t)) tl))
+  | tProj _ t => noccurn n t
+  | tFix mfix _ => andb_list (List.map (fun x => noccurn n (x.(dbody))) mfix)
+  | tCoFix mfix _ => andb_list (List.map (fun x => noccurn n (x.(dbody))) mfix)
+  end.
+
+(* η-reduces all redexes in t *)
+Fixpoint eta_reduce (t : term) : term :=
+  match t with
+  | tLambda na r a b =>
+    match eta_reduce b with
+    | tApp f args =>
+      match List.rev args with
+      | (tRel 0)::tl =>
+        let args' := List.rev tl in
+        if andb_list (List.map (noccurn 0) (f::args')) then
+          (mkApps f args') {0 := (tConst "dummy var" [])}
+	else
+          map_constr eta_reduce t
+      | _ => map_constr eta_reduce t
+      end
+    | _ => map_constr eta_reduce t
+    end
+  | _ => map_constr eta_reduce t
+  end.
+
 (* translates the arity of a one_inductive_body. env should contain the parameters of
  the mutual_inductive_body *)
 Definition f_translate_arity (tsl_ctx : tsl_context) (cat : category)
-           (env : Environ.env) (σ : evar_map) (name : kername) (arity : term)
+           (env : Environ.env) (σ : evar_map) (n_params : nat) (name : kername) (arity : term)
   : tsl_result (evar_map * term) :=
+  (* put parameters in context with dummy types *)
+  let reduction_context := dummy_context (S n_params) in
+  let forcing_ctxt := dummy_fctx (snd tsl_ctx) cat n_params in
   (* translation the arity *)
   let (l, s) := decompose_prod arity  in
   let n_indices := length l in
-  let (σ, arity') := translate_type false None (snd tsl_ctx) cat env σ arity in
-  (* now reduce the β-redexes *)
-  (* using (fst (fst tsl_ctx)) as global_declarations in reduce allows to reduce things like
-     morphisms of the category. I dont think we actually want that *)
-  arity' <- match reduce [] (dummy_context 1) arity' with
+  let (σ, arity') := otranslate_type otranslate env forcing_ctxt σ arity in
+  (* now reduce compositions with id, β-redexes, η-redexes *)
+  let arity' := reduce_compositions (snd (fst tsl_ctx)) cat arity' in
+  arity' <- match reduce [] reduction_context arity' with
            | Checked a => ret a
            | TypeError e => Error (TypingError e)
            end ;;
@@ -177,89 +273,6 @@ Definition substn_consts (p : nat) (vars : list ident) (c : term)
   let (_, subst) := fold_left fold vars (p,[]) in
   replace_consts (List.rev subst) c.
 
-(* applies f to all the subterms of t, without any recursion *)
-Definition map_constr (f : term -> term) (t : term) : term :=
-    match t with
-    | tRel i => t
-    | tEvar ev args => tEvar ev (List.map f args)
-    | tLambda na r T M => tLambda na r (f T) (f M)
-    | tApp u v => tApp (f u) (List.map f v)
-    | tProd na r A B => tProd na r (f A) (f B)
-    | tCast c kind t => tCast (f c) kind (f t)
-    | tLetIn na r b t b' => tLetIn na r (f b) (f t) (f b')
-    | tCase ind r p c brs =>
-      let brs' := List.map (on_snd f) brs in
-      tCase ind r (f p) (f c) brs'
-    | tProj p c => tProj p (f c)
-    | tFix mfix idx =>
-      let mfix' := List.map (map_def f) mfix in
-      tFix mfix' idx
-    | tCoFix mfix k =>
-      let mfix' := List.map (map_def f) mfix in
-      tCoFix mfix' k
-    | x => x
-    end.
-
-(* reduces all [shallow] redexes of the form (id ∘ f) or (f ∘ id) to f *)
-Fixpoint reduce_compositions (ug : uGraph.t) (cat : category) (t : term) : term :=
-  match t with
-  | tApp u (_::_::_::α1::α2::nil) =>
-    if eq_term ug cat.(cat_comp) u then
-      let is_id := fun x => match x with
-                        | tApp v _ => if eq_term ug cat.(cat_id) v then true else false
-                        | _ => false
-                        end
-      in
-      if is_id α1 then
-        reduce_compositions ug cat α2
-      else if is_id α2 then
-        reduce_compositions ug cat α1
-      else
-        map_constr (reduce_compositions ug cat) t
-    else
-      map_constr (reduce_compositions ug cat) t
-  | _ => map_constr (reduce_compositions ug cat) t
-  end.
-
-Definition andb_list l := fold_left (fun acc b => andb acc b) l true.
-
-(* returns true if the variable with de Bruijn index n does not occur in t *)
-Fixpoint noccurn (n : nat) (t : term) : bool :=
-  match t with
-  | tRel m => negb (eq_nat n m)
-  | tVar _ | tSort _ | tConst _ _ | tInd _ _ | tConstruct _ _ _ | tMeta _ => true
-  | tEvar _ tl => andb_list (List.map (noccurn n) tl)
-  | tCast t1 _ t2 => (noccurn n t1) && (noccurn n t2)
-  | tProd _ _ t1 t2 => (noccurn n t1) && (noccurn (S n) t2)
-  | tLambda _ _ t1 t2 => (noccurn n t1) && (noccurn (S n) t2)
-  | tLetIn _ _ t1 t2 t3 => (noccurn n t1) && (noccurn n t2) && (noccurn (S n) t3)
-  | tApp t tl => (noccurn n t) && (andb_list (List.map (noccurn n) tl))
-  | tCase _ _ t1 t2 tl => (noccurn n t1) && (noccurn n t2) && (andb_list (List.map (fun t => noccurn n (snd t)) tl))
-  | tProj _ t => noccurn n t
-  | tFix mfix _ => andb_list (List.map (fun x => noccurn n (x.(dbody))) mfix)
-  | tCoFix mfix _ => andb_list (List.map (fun x => noccurn n (x.(dbody))) mfix)
-  end.
-
-(* η-reduces all redexes in t *)
-Fixpoint eta_reduce (t : term) : term :=
-  match t with
-  | tLambda na r a b =>
-    match eta_reduce b with
-    | tApp f args =>
-      match List.rev args with
-      | (tRel 0)::tl =>
-        let args' := List.rev tl in
-        if andb_list (List.map (noccurn 0) (f::args')) then
-          (mkApps f args') {0 := (tConst "dummy var" [])}
-	else
-          map_constr eta_reduce t
-      | _ => map_constr eta_reduce t
-      end
-    | _ => map_constr eta_reduce t
-    end
-  | _ => map_constr eta_reduce t
-  end.
-
 (* given a list of constant names, adds bindings to their translated version *)
 Fixpoint extend_tsl_table (names : list ident) (tbl : tsl_table) :=
   match names with
@@ -278,17 +291,18 @@ Definition f_translate_lc_list (tsl_ctx : tsl_context) (cat : category)
      be able to recognize them *)
   let tsl_tbl := extend_tsl_table invsubst (snd tsl_ctx) in
   (* put arguments in the context (with dummy type because they are not necessary) *)
-  let reduction_ctxt := dummy_context (S (S n_params)) in
+  let reduction_ctxt := dummy_context (S n_params) in
+  (* put them in the forcing context too, somewhat *)
+  let forcing_ctxt := dummy_fctx tsl_tbl cat n_params in
   let f_translate_lc :=
       fun (m : tsl_result (evar_map * list term)) typ =>
         acc <- m ;;
         let (σ, tail) := acc : evar_map * list term in
         (* lift all free variables in the type to account for insertion of a new parameter
          i think this corresponds to the trick with envtr in the ocaml plugin ? *)
-        let typ := up typ in
-        (* replace the indices for oib's with their names *)
-        let typ := substnl (map (fun x => tConst x []) invsubst) (S n_params) typ in
-        let (σ, typ) := translate_type false None tsl_tbl cat env σ typ in
+                (* replace the indices for oib's with their names *)
+        let typ := substnl (map (fun x => tConst x []) invsubst) n_params typ in
+        let (σ, typ) := otranslate_type otranslate env forcing_ctxt σ typ in
         (* replace the names of oib's with their translation *)
         let typ := replace_consts substfn typ in
         let typ := reduce_compositions (snd (fst tsl_ctx)) cat typ in
@@ -326,9 +340,7 @@ Definition f_translate_oib (tsl_ctx : tsl_context) (cat : category)
   : tsl_result (evar_map * one_inductive_entry) :=
   let (typename, consnames) := f_translate_names entry.(mind_entry_typename) entry.(mind_entry_consnames) in
   let template := entry.(mind_entry_template) in   (* translation should preserve template polymorphism *)
-  (** TODO update env
-   Like, really, this WILL not work as is. *)
-  x <- f_translate_arity tsl_ctx cat env σ entry.(mind_entry_typename) entry.(mind_entry_arity) ;;
+  x <- f_translate_arity tsl_ctx cat env σ n_params entry.(mind_entry_typename) entry.(mind_entry_arity) ;;
   let (σ, arity) := x : evar_map * term in
   x <- f_translate_lc_list tsl_ctx cat env σ n_params entry.(mind_entry_lc) substfn invsubst ;;
   let (σ, lc) := x : evar_map * list term in
@@ -338,7 +350,7 @@ Definition f_translate_oib (tsl_ctx : tsl_context) (cat : category)
              mind_entry_consnames := consnames ;
              mind_entry_lc := List.rev lc |}).
 
-(** TODO *)
+(** TODO : Universes *)
 Definition from_env (env : Environ.env)
   : evar_map :=
   tt.
@@ -357,22 +369,23 @@ Definition f_translate_params (tsl_ctx : tsl_context) (cat : category)
                let (ext, tfctx) := extend env fctx in
                let (σ, t') := otranslate_type otranslate env tfctx σ t in
                let t' := it_mkProd_or_LetIn t' ext in
+               let t' := reduce_compositions (snd (fst tsl_ctx)) cat t' in
                let fctx := add_variable fctx in
                (σ, fctx, (id, LocalAssum t')::tail)
   in
   let init := [("p", LocalAssum (cat.(cat_obj)))] in
   let empty := {| f_context := []; f_category := cat; f_translator := (snd tsl_ctx) ; |} in
-  let '(σ, _, params) := fold_right fold (σ, empty, init) params in
-  (σ, params).
+  let '(σ, _, params) := fold_right fold (σ, empty, init) (List.rev params) in
+  (σ, List.rev params).
 
 (* main translation function for inductives *)
 Definition f_translate_mib (tsl_ctx : tsl_context) (cat : category) (mib : mutual_inductive_body)
   : tsl_result mutual_inductive_entry :=
   (* entries are more pleasant to work with than bodies *)
   let entry := mind_body_to_entry mib in
-  (* this should be from the global environment, right ? *)
-  (* however, not sure if there is a way to get it from TemplateCoq *)
-  let env := Environ.empty_env in (** TODO fix *)
+  (** TODO : universes *)
+  (* env and σ should be used to keep track of universe variables *)
+  let env := Environ.empty_env in
   let σ := from_env env in
   let invsubst := List.rev (map (fun x => x.(mind_entry_typename)) entry.(mind_entry_inds)) in
   let (σ, substfn) := f_translate_oib_types tsl_ctx cat env σ mib in
@@ -394,7 +407,7 @@ Definition f_translate_mib (tsl_ctx : tsl_context) (cat : category) (mib : mutua
                mind_entry_inds := bodies ;
                (* Okay so the ocaml plugin somehow gets the universe graph from the evar_map.
                 I guess this is because translation could introduce new universe constraints. *)
-               mind_entry_universes := entry.(mind_entry_universes) ; (** TODO fix that *)
+               mind_entry_universes := entry.(mind_entry_universes) ; (** TODO : universes *)
                mind_entry_private := None |} (* this is also lost during quoting *)
   in
   ret entry.
