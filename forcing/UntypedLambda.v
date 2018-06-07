@@ -41,9 +41,11 @@ Section UntypedLambda.
 
   Lemma nextp_applD {n} (t t' : ⊳[n] 𝒟) : (nextp t) @[1+n] (nextp t') = nextp (t @ t').
   Proof.
-    unfold applD. rewrite <- switchD_nextp.
-    Admitted.
-
+    unfold applD. rewrite <- switchD_nextp. apply f_equal.
+    unfold defun_.
+    repeat rewrite nunfold_next.
+    rewrite later_app_next_β. reflexivity.
+  Qed.
 
   Lemma defun_fun_id {n} (f : ⊳[1+n]𝒟 -> ⊳[1+n]𝒟) : defun_ (fun_ f) = f.
   Proof.
@@ -65,9 +67,9 @@ Section UntypedLambda.
   Lemma Ω_unfold {n :nat} : Ω (n:=n) @ Ω = → (Ω @ Ω).
   Proof.
     unfold Ω at 1. unfold applD at 1.
-    rewrite defun_fun_id.
-  Admitted.
-
+    rewrite defun_fun_id. rewrite nextp_applD.
+    reflexivity.
+  Qed.
 
   Definition Y' {n} (f : ⊳[ 1 + n] 𝒟) : ⊳[ 1 + n] 𝒟
     := fun_ (fun (x : ⊳[2+n]𝒟) => applD (n:=2+n) (nextp f) (x @ x)).
