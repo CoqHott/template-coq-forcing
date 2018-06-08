@@ -518,7 +518,27 @@ Inductive Falseᵗ (p : 𝐂_obj) := .
 Run TemplateProgram (TC <- tAddExistingInd eq_TC "Coq.Init.Logic.False" "Falseᵗ" ;;
                           tmDefinition "False_TC" TC).
 
+
+
 (** Axiom 2 of Orton & Pitts *)
+
+Definition zero_f1 : finset 1.
+  exists 0. easy.
+Defined.
+
+Definition lowest_corner (p : nat) : cube p.
+  intro. exact false.
+Defined.
 
 (* I need false, too *)
 Run TemplateProgram (tImplement False_TC "ax2" (𝕀₀ = 𝕀₁ -> False)).
+Next Obligation.
+  specialize (H p id). inversion H.
+  assert (𝕀₀ᵗ p = 𝕀₁ᵗ p).
+  change (𝕀₀ᵗ p) with ((fun (p1 : nat) (_ : p ~> p1) => 𝕀₀ᵗ p1) p id). rewrite H1. reflexivity.
+  assert (𝕀_end_map p false = 𝕀_end_map p true).
+  change (𝕀_end_map p false) with ((𝕀₀ᵗ p).1s). rewrite H0. reflexivity.
+  assert (false = true).
+  change false with (𝕀_end_map p false (lowest_corner p) zero_f1). rewrite H2. reflexivity.
+  inversion H3.
+Defined.
