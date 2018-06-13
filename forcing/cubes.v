@@ -411,7 +411,7 @@ Definition ΣE : tsl_context := (reconstruct_global_context g_ctx,[]).
 
 (** Definition of the interval *)
 
-Run TemplateProgram (tImplementTC ΣE "𝕀_TC" "𝕀" Type).
+Run TemplateProgram (tImplementTC ΣE "I_TC" "I" Type).
 Next Obligation.
   exact (p0 ~> 1).
 Defined.
@@ -452,18 +452,30 @@ Definition terminal_arrow (p : nat) : p ~> 0.
   - exact (terminal_map p ; H)s.
 Defined.
 
-Definition 𝕀_end_map (p : nat) (e : bool) : cube p -> cube 1 :=
+Theorem eq_sexist {A : Type} {P : A -> SProp} (a b : sexists P) (e : a.1s = b.1s) :
+  a = b.
+  destruct a, b. simpl in e. admit.
+Admitted.
+
+Theorem terminal_arrow_is_terminal (p : nat) (α : p ~> 0) :
+  α = terminal_arrow p.
+Proof.
+  apply eq_sexist. apply funext. intro x. apply funext.
+  intros [n H]. assert False. eapply pos_ge_0. exact H. inversion H0.
+Qed.
+
+Definition I_end_map (p : nat) (e : bool) : cube p -> cube 1 :=
   (fun (_ : cube p) (_ : finset 1) => e).
 
-Definition 𝕀_end_word (p : nat) (e : bool) : word p 1.
+Definition I_end_word (p : nat) (e : bool) : word p 1.
   apply face.
   - exists 0. easy.
   - exact e.
   - exact (terminal_word p).
 Defined.
 
-Theorem 𝕀_end_admissible (p : nat) (e : bool) :
-  𝕀_end_map p e =s comp_word (𝕀_end_word p e).
+Theorem I_end_admissible (p : nat) (e : bool) :
+  I_end_map p e =s comp_word (I_end_word p e).
 Proof.
   apply eq_eqs. simpl. rewrite <- (eqs_eq (terminal_map_admissible p)).
   apply funext. intro c. apply funext. intros [x H]. destruct x.
@@ -471,20 +483,20 @@ Proof.
   - pose proof (le_S_n (S x) 0 H) as H'. apply pos_ge_0 in H'. destruct H'.
 Qed.
 
-Definition 𝕀_end (p : nat) (e : bool) : p ~> 1.
-  assert (admissible (𝕀_end_map p e)).
-  - eapply spair_s. exact (𝕀_end_admissible p e).
-  - exact (𝕀_end_map p e ; H)s.
+Definition I_end (p : nat) (e : bool) : p ~> 1.
+  assert (admissible (I_end_map p e)).
+  - eapply spair_s. exact (I_end_admissible p e).
+  - exact (I_end_map p e ; H)s.
 Defined.
 
-Run TemplateProgram (tImplementTC 𝕀_TC "𝕀₀_TC" "𝕀₀" 𝕀).
+Run TemplateProgram (tImplementTC I_TC "I0_TC" "I0" I).
 Next Obligation.
-  exact (𝕀_end p false).
+  exact (I_end p false).
 Defined.
 
-Run TemplateProgram (tImplementTC 𝕀₀_TC "𝕀₁_TC" "𝕀₁" 𝕀).
+Run TemplateProgram (tImplementTC I0_TC "I1_TC" "I1" I).
 Next Obligation.
-  exact (𝕀_end p true).
+  exact (I_end p true).
 Defined.
 
 
@@ -510,15 +522,98 @@ Proof.
   intros. rewrite H. apply eq_reflᵗ.
 Qed.
 
-Run TemplateProgram (TC <- tAddExistingInd 𝕀₁_TC "Coq.Init.Logic.eq" "eqᵗ" ;;
+Run TemplateProgram (TC <- tAddExistingInd I1_TC "Coq.Init.Logic.eq" "eqᵗ" ;;
                           tmDefinition "eq_TC" TC).
 
 Inductive Falseᵗ (p : 𝐂_obj) := .
 
 Run TemplateProgram (TC <- tAddExistingInd eq_TC "Coq.Init.Logic.False" "Falseᵗ" ;;
-                          tmDefinition "False_TC" TC).
+                        tmDefinition "False_TC" TC).
 
-(** Axiom 2 of Orton & Pitts *)
+Inductive orᵗ (p : 𝐂_obj) (A B : forall p0 : 𝐂_obj, p ~> p0 -> forall p1 : 𝐂_obj, p0 ~> p1 -> Prop) : Prop :=
+    or_introlᵗ : (forall (p0 : 𝐂_obj) (α : p ~> p0), A p0 α p0 id) -> orᵗ p A B
+  | or_introrᵗ : (forall (p0 : 𝐂_obj) (α : p ~> p0), B p0 α p0 id) -> orᵗ p A B.
 
-(* I need false, too *)
-Run TemplateProgram (tImplement False_TC "ax2" (𝕀₀ = 𝕀₁ -> False)).
+Run TemplateProgram (TC <- tAddExistingInd False_TC "Coq.Init.Logic.or" "orᵗ" ;;
+                        tmDefinition "or_TC" TC).
+
+Definition complete_TC := or_TC.
+
+
+(** Axiom 1 : connectedness *)
+
+Definition unique : cube 0.
+  unfold cube. unfold finset. intros [m H]. apply pos_ge_0 in H. inversion H.
+Defined.
+
+Definition zero_f1 : finset 1.
+  exists 0. easy.
+Defined.
+
+Run TemplateProgram (tImplementTC complete_TC "sep_TC" "sep" (I -> Prop)).
+Next Obligation.
+  specialize (X 0 (terminal_arrow p)). unfold Iᵗ in X. unfold Iᵗ_obligation_1 in X.
+  apply (fun x => x.1s) in X. specialize (X unique). unfold cube in X. specialize (X zero_f1).
+  exact (if X then True else False).
+Defined.
+
+Run TemplateProgram (tImplementTC sep_TC "sep1_TC" "counter_ax1_pt1" (forall i : I, sep i \/ (sep i -> False))).
+Next Obligation.
+  assert (((i 0 (terminal_arrow p)).1s unique zero_f1 = true) \/ ((i 0 (terminal_arrow p)).1s unique zero_f1 = false)).
+  - destruct ((i 0 (terminal_arrow p)).1s unique zero_f1).
+    + now left.
+    + now right.
+  - destruct H.
+    + apply or_introlᵗ. intros p0 α. unfold sepᵗ. unfold sepᵗ_obligation_1.
+      change (id ô terminal_arrow p0 ô (id ô α ô id)) with (terminal_arrow p0 ô α).
+      assert (terminal_arrow p0 ô α = terminal_arrow p).
+      * apply terminal_arrow_is_terminal.
+      * rewrite H0. rewrite H. exact Logic.I.
+    + apply or_introrᵗ. intros p0 α H1. unfold sepᵗ in H1. unfold sepᵗ_obligation_1 in H1.
+      specialize (H1 p0 id).
+      assert (id ô terminal_arrow p0 ô id ô id ô (id ô α ô id) = terminal_arrow p).
+      * apply terminal_arrow_is_terminal.
+      * rewrite H0 in H1. rewrite H in H1. inversion H1.
+Defined.
+
+Run TemplateProgram (tImplementTC sep1_TC "sep2_TC" "counter_ax1_pt2" (sep I0 -> False)).
+Next Obligation.
+  specialize (H p id). compute in H. inversion H.
+Defined.
+
+Run TemplateProgram (tImplementTC sep2_TC "sep3_TC" "counter_ax1_pt3" (sep I1)).
+Next Obligation.
+  compute. exact Logic.I.
+Defined.
+
+Run TemplateProgram (tImplement sep3_TC "counter_ax1"
+  ((forall (φ : I -> Prop), (forall i : I, φ i \/ (φ i -> False)) -> (forall i : I, φ i) \/ (forall i : I, φ i -> False)) -> False)).
+Next Obligation.
+  specialize (H p id). About sepᵗ. specialize (H (fun p α => sepᵗ p)). About counter_ax1_pt1ᵗ.
+  specialize (H (fun p α => counter_ax1_pt1ᵗ p)). destruct H.
+  - apply counter_ax1_pt2ᵗ. intros p0 α. specialize (H p0 α). specialize (H (fun p α => I0ᵗ p)). exact H.
+  - specialize (H p id (fun p α => I1ᵗ p)). apply H. intros p0 α. exact (counter_ax1_pt3ᵗ p0).
+Defined.
+
+
+(** Axiom 2 : distinct end points *)
+
+Definition zero_f1 : finset 1.
+  exists 0. easy.
+Defined.
+
+Definition lowest_corner (p : nat) : cube p.
+  intro. exact false.
+Defined.
+
+Run TemplateProgram (tImplement False_TC "ax2" (I0 = I1 -> False)).
+Next Obligation.
+  specialize (H p id). inversion H.
+  assert (I0ᵗ p = I1ᵗ p).
+  change (I0ᵗ p) with ((fun (p1 : nat) (_ : p ~> p1) => I0ᵗ p1) p id). rewrite H1. reflexivity.
+  assert (I_end_map p false = I_end_map p true).
+  change (I_end_map p false) with ((I0ᵗ p).1s). rewrite H0. reflexivity.
+  assert (false = true).
+  change false with (I_end_map p false (lowest_corner p) zero_f1). rewrite H2. reflexivity.
+  inversion H3.
+Defined.
