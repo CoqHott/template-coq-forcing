@@ -366,20 +366,49 @@ Module Later.
     destruct q;reflexivity.
   Qed.
 
-  (* Former "next_arrow_wird" *)
+  Run TemplateProgram
+      (tImplementTC lapp_next_const_TC "lunapp_const_TC" "later_unapp_const_β"
+                    (forall A B (t : B),
+                        (later_unapp A B (fun _ => nextp _ t) = (nextp _ (fun _ => t))))).
+    Next Obligation.
+    apply eq_is_eq.
+    apply functional_extensionality_dep.
+    intros q.
+    apply functional_extensionality_dep_s.
+    intros α.
+    destruct q;reflexivity.
+    Qed.
+
+  Run TemplateProgram
+    (tImplementTC lapp_next_const_TC "lapp_next_app_1_TC" "later_app_next_app_1_β"
+                  (forall A B (g : ⊳ A -> B) (t : ⊳A ),
+                      nextp _ (fun t0 => g (nextp _ t0)) ⊙ t = nextp _ (g t))).
+  Next Obligation.
+  apply eq_is_eq.
+  apply functional_extensionality_dep.
+  intros q.
+  apply functional_extensionality_dep_s.
+  intros α.
+  destruct q.
+  - reflexivity.
+  - simpl. apply f_equal.
+    apply functional_extensionality_dep.
+    intros q1.
+    apply functional_extensionality_dep_s.
+    intros α1.
+    destruct q1.
+    * simpl. destruct (t 0 (α1 ∘ (sle_Sn q ) ∘ α)). reflexivity.
+    * reflexivity.
+  Qed.
+
+  (* NOTE: Former "next_arrow_wird". It seems to me that this lemma is not provable without knowing what M is.
+     In fact, it looks more like a property of M rather then a general lemma. *)
+  (* TODO: remove, this lemma is not used in the development *)
   Lemma next_arr_later_arr :
     forall T U V (M : forall {n}, nlater n T -> nlater n U -> nlater n V) n g,
       later_app _ _ ((⊳_f M) (nextp _ g)) = M (n := S n) (nextp _ g).
   Proof.
   Admitted.
-  
-  (* Run TemplateProgram *)
-  (*     (tImplementTC nextp_natural_TC "next_arr_later_arr_TC" "next_arr_later_arr" *)
-  (*                 (forall T U V (M : forall {n}, nlater n T -> nlater n U -> nlater n V) n g,  *)
-  (*                     later_app _ _ ((⊳_f M) (nextp _ g)) = M (n := S n) (nextp _ g))). *)
-  
-  (* Axiom next_arrow_wird : forall T U V (M : forall {n}, nlater n T -> nlater n U -> nlater n V) n g,  *)
-  (*     later_arrow ((next_arrow M) (next g)) = M (n := S n) (next g). *)
 
 End Later.
 
