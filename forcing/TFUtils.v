@@ -34,7 +34,7 @@ Definition lookup_default (E : tsl_table) (gr : global_reference)
 Import ListNotations.
 
 (* Partly taken from Template.Typing *)
-Fixpoint it_mkLambda_or_LetIn (t : term) (l : context) :=
+Definition it_mkLambda_or_LetIn (t : term) (l : context) :=
   List.fold_left
     (fun acc d =>
        match d.(decl_body) with
@@ -42,7 +42,7 @@ Fixpoint it_mkLambda_or_LetIn (t : term) (l : context) :=
        | Some b => tLetIn d.(decl_name) d.(decl_relevance) b d.(decl_type) acc
        end) l t.
 
-Fixpoint it_mkProd_or_LetIn (t : term) (l : context) :=
+Definition it_mkProd_or_LetIn (t : term) (l : context) :=
   List.fold_left
     (fun acc d =>
        match d.(decl_body) with
