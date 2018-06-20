@@ -250,12 +250,7 @@ Definition from_rel_result (rl : rel_result) : relevance :=
 
 (* TODO: use the same style for the record projections everywhere *)
 
-(* While extending the context we need to determine the relevance of the types of morphisms and objects in the category.
-   In order to do that we use the [relevance_of_type] function, and this function requires a global context, so now
-   [extend] also takes is as a parameter *)
-Definition extend (env : Environ.env) (fctx : forcing_context) : list context_decl * forcing_context :=
-  let cat := fctx.(f_category) in
-  let last := last_condition fctx.(f_context) in
+Definition get_ctx_lift (cat : category) (env : Environ.env) (last_fc : nat) :=
   let g_ctx := Environ.env_globals env in
   let relevance_of_arg := from_rel_result (relevance_of_type g_ctx [] cat.(cat_obj)) in
   (* We are interested in the relevance of [hom x y] for any [x] and [y] of the appropriate type.
@@ -266,22 +261,30 @@ Definition extend (env : Environ.env) (fctx : forcing_context) : list context_de
   let dummy_app := (tApp cat.(cat_hom) [tRel 1; tRel 0]) in
   let relevance_hom :=
       from_rel_result (relevance_of_type (Environ.env_globals env) dummy_ctx dummy_app) in
-  let ext :=
-      [ Build_context_decl
-          hom_name
-          relevance_hom
-          None
-          (tApp cat.(cat_hom) [(tRel (1 + last)); (tRel 0)]);
-          (* replaced mkRel 1 with tRel 0, see comments for [last_condition] *)
-        Build_context_decl
-          pos_name
-          relevance_of_arg
-          None
-          cat.(cat_obj) ]
-  in
-  (ext, {| f_context := fcLift :: fctx.(f_context);
-           f_category := cat;
-           f_translator := fctx.(f_translator)|}).
+  [ Build_context_decl
+      hom_name
+      relevance_hom
+      None
+      (tApp cat.(cat_hom) [(tRel (1 + last_fc)); (tRel 0)]);
+      (* replaced mkRel 1 with tRel 0, see comments for [last_condition] *)
+    Build_context_decl
+      pos_name
+      relevance_of_arg
+      None
+      cat.(cat_obj) ].
+
+Definition extend_forcing_ctx (fctx : forcing_context) (f : forcing_condition):=
+  {| f_context := f :: fctx.(f_context);
+     f_category := fctx.(f_category);
+     f_translator := fctx.(f_translator)|}.
+
+
+(* While extending the context we need to determine the relevance of the types of morphisms and objects in the category.
+   In order to do that we use the [relevance_of_type] function, and this function requires a global context, so now
+   [extend] also takes is as a parameter *)
+Definition extend (env : Environ.env) (fctx : forcing_context) : list context_decl * forcing_context :=
+  let ext := get_ctx_lift fctx.(f_category) env (last_condition fctx.(f_context)) in
+  (ext, extend_forcing_ctx fctx fcLift).
 
 Definition add_variable fctx :=
   {| f_context := fcVar :: fctx.(f_context);
@@ -514,6 +517,20 @@ Definition otranslate_ind
   let ans := it_mkLambda_or_LetIn app (ext ++ paramtyp_subst)%list in
   (sigma, mkOptApp ans args_).
 
+(** Returns an extended forcing context and the function, wrapping
+    give term [body] into [λ (q : cat) (f : Hom(σₑ,q)) . body],
+    where σₑ is the last forcing condition of σ.
+    See Notaion 1 in DSoF paper. *)
+Definition lambda_prefix ext :=
+  fun body => it_mkLambda_or_LetIn body ext.
+
+(** Similarly to [lambda_prefix], but for [Π q f].
+    See Notaion 1 in DSoF paper. *)
+Definition pi_prefix env fctx :=
+  let (ext, fctx) := extend env fctx in
+  ((ext,fctx), fun body => it_mkProd_or_LetIn body ext).
+
+
 Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
          (sigma : evar_map) (c : term) {struct c} : evar_map * term :=
   match c with
@@ -522,8 +539,6 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
   (* let ans := tVar (list_to_string fcond_to_string fctx.(f_context) ++ " | tRel " ++ string_of_int n) in *)
     (sigma, ans)
 | tSort s =>
-  let (ext0, fctx) := extend env fctx in
-  let (ext, fctx) := extend env fctx in
   let (sigma, s') :=
       if is_prop s then (sigma, s)
     else
@@ -533,10 +548,17 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
       (* For now, we just return the original universe, as it is given in the paper *)
       (sigma, s)
   in
+  (* let (ext0, fctx) := extend env fctx in *)
+  let ext_ctx1 := get_ctx_lift fctx.(f_category) env (last_condition fctx.(f_context)) in
+  let ext_fctx := extend_forcing_ctx fctx fcLift in
+  (* let (ctxs, lam_q_f) := lambda_prefix env fctx in *)
+  (* let (_, fctx) := ctxs in *)
+  (* let (ext, _) := extend env fctx in *)
+  let ext_ctx2 := get_ctx_lift fctx.(f_category) env (last_condition ext_fctx.(f_context)) in
+  (* TODO: universe variable generation *)
   (* let sigma := Evd.set_leq_sort env sigma s s' in *)
-  let tpe := it_mkProd_or_LetIn (tSort s') ext in
-  let lam := it_mkLambda_or_LetIn tpe ext0 in
-  (sigma, lam)
+  let tpe := it_mkProd_or_LetIn (tSort s') ext_ctx2 in
+  (sigma, lambda_prefix ext_ctx1 tpe)
 | tCast c k t =>
   let (sigma, c_) := otranslate env fctx sigma c in
   let (sigma, t_) := otranslate_type otranslate env fctx sigma t in
@@ -648,10 +670,16 @@ Definition empty translator cat lift env :=
 
 (** The toplevel option allows to close over the topmost forcing condition *)
 
+Definition toplevel_term (cat : category) (c : term) : term
+  := tLambda pos_name Relevant cat.(cat_obj) c.
+
+Definition toplevel_type (cat : category) (c : term) : term
+  := tProd pos_name Relevant cat.(cat_obj) c.
+
 Definition translate (toplevel : bool) lift translator cat env sigma c :=
   let empty := empty translator cat lift env in
   let (sigma, c) := otranslate env empty sigma c in
-  let ans := if toplevel then tLambda pos_name Relevant cat.(cat_obj) c else c in
+  let ans := if toplevel then toplevel_term cat c else c in
   (sigma, ans).
 
 Definition translate_simple (toplevel : bool) (cat : category) (c : term) : term :=
@@ -666,6 +694,44 @@ Definition translate_type (toplevel : bool) lift translator cat env sigma c :=
 Definition translate_type_simple (toplevel : bool) (cat : category) (c : term) : term :=
   let (_, c_) := translate_type toplevel None [] cat Environ.empty_env tt c in c_.
 
+
+Definition otranslate_context (env : Environ.env) (fctx : forcing_context)
+           (sigma : evar_map) (ctx : context)
+  : evar_map * context :=
+  let fold (a : context_decl) (b : evar_map * forcing_context * context) :=
+      match b with
+       (sigma, fctx, ctx_) =>
+       let (sigma, body_) := match a.(decl_body) with
+                             | None => (sigma, None)
+                             | Some _ => (sigma, Some (tVar ("something went wrong")))
+                             end
+       in
+       let (ext, tfctx) := extend env fctx in
+       let (sigma, t_) := otranslate_type otranslate env tfctx sigma a.(decl_type) in
+       let t_ := it_mkProd_or_LetIn t_ ext in
+       let decl_ := Build_context_decl a.(decl_name) a.(decl_relevance) body_ t_ in
+       let fctx := add_variable fctx in
+       (sigma, fctx, decl_ :: ctx_)
+      end
+  in
+  match (List.fold_right fold (sigma, fctx, []) ctx) with
+    (sigma, _, ctx_) => (sigma, ctx_)
+  end.
+
+Definition toplevel_context (cat : category) (ctx : context) : context :=
+  Build_context_decl pos_name Relevant None cat.(cat_obj) :: ctx.
+
+Definition translate_context (toplevel : bool) (lift : option nat)
+           (translator : tsl_table) (cat : category)
+           (env : Environ.env) (sigma : evar_map) (ctx : context)
+  : evar_map * context :=
+  let empty := empty translator cat lift env in
+  let (sigma, ctx_) := otranslate_context env empty sigma ctx in
+  let ctx__ := if toplevel then  toplevel_context cat ctx_ else ctx_ in
+  (sigma, ctx__).
+
+Definition translate_context_simple (toplevel : bool) (cat : category) (ctx : context) : context :=
+  let (_, c_) := translate_context toplevel None [] cat Environ.empty_env tt ctx in c_.
 
 (* A bridge to the monadic translation utils *)
 
