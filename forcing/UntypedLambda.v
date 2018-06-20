@@ -17,11 +17,11 @@ Section UntypedLambda.
     := nunfoldp (fun T : Type => T -> T) (fun A => later_app A A) f.
 
   Definition switchD {n} : ⊳[1+n]𝒟 -> ⊳[n]𝒟 := fun t => fun_ (fun _ => t).
-
   Notation "↓ a" := (switchD a) (at level 40).
 
-  Definition one_step {n} (x: ⊳[n]𝒟) := ↓ (nextp x).
+  Definition applD {n} : ⊳[n]𝒟 -> ⊳[n]𝒟 -> ⊳[n]𝒟 := fun f s => ↓ ((defun_ f) (nextp s)).
 
+  Definition one_step {n} (x: ⊳[n]𝒟) := ↓ (nextp x).
   Notation "→ a" := (one_step a) (at level 40).
 
   Lemma switchD_nextp {n : nat} (t : ⊳[1+n] 𝒟) : (switchD (n:=1+n) (nextp t)) = nextp (↓t).
@@ -33,8 +33,6 @@ Section UntypedLambda.
     apply functional_extensionality_dep. intros t'.
     symmetry. apply later_app_const_β.
     Qed.
-
-  Definition applD {n} : ⊳[n]𝒟 -> ⊳[n]𝒟 -> ⊳[n]𝒟 := fun f s => ↓ ((defun_ f) (nextp s)).
 
   Notation "t1 @ t2" := (applD t1 t2) (at level 40).
   Notation "t1 '@[' n ']' t2" := (applD (n:=n) t1 t2) (at level 40).
@@ -71,7 +69,7 @@ Section UntypedLambda.
     intros ? ?; apply later_unapp_app.
   Qed.
 
-    Lemma later_funct_applD n g :
+  Lemma later_funct_applD n g :
     later_app (nextp (fun t => g @ t)) = fun t => (nextp g) @[1+n] t.
   Proof.
     apply functional_extensionality_dep. fold nlater in *.
@@ -116,7 +114,6 @@ Section UntypedLambda.
     assert
       (nextp (fun t0 : ⊳[ n] 𝒟 => q (nextp (t0))) ⊙ t = nextp (q t)).
     {rewrite later_app_next_app_1_β with (g:=q). reflexivity. }
-    (* assert (q = (fun _ : ⊳ (⊳[ n] 𝒟) => nunfoldp g (nextp (f n t0)))). *)
     subst q. simpl in H0. rewrite <- H0. f_equal. f_equal.
     apply functional_extensionality_dep. intros x. f_equal.
     apply functional_extensionality_dep. intros y.
@@ -127,8 +124,8 @@ Section UntypedLambda.
 
   Lemma idD_is_id {n} (t : ⊳[n]𝒟) : idD @ t = → t.
   Proof.
-    unfold idD,applD,defun_,fun_. rewrite nunfold_nfold_id.
-    reflexivity.  unfold TFUtils.sect. intros. apply later_app_unapp.
+    unfold idD,applD. rewrite defun_fun_id.
+    reflexivity.
   Qed.
 
   Definition Ω {n} := fun_ (fun (x : ⊳[1+n]𝒟) => x @ x).
@@ -170,8 +167,7 @@ Section UntypedLambda.
   Lemma Y_unfold : forall n (f : ⊳[1+n]𝒟), (Y @ f) = → → (f @ ((Y' f) @ (Y' f))).
   Proof.
     intros.
-    unfold Y at 1. unfold applD at 1. rewrite defun_fun_id.
-    unfold applD at 1. unfold Y' at 1. rewrite defun_fun_id.
+    unfold Y,applD. unfold Y' at 1. repeat rewrite defun_fun_id.
     unfold Y_aux. rewrite (@nextp_applD (2+n)).
     rewrite (Y'_nextp (n:=n)).
     rewrite (@nextp_applD (2+n)). rewrite (@nextp_applD (1+n)).
