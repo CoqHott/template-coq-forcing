@@ -94,15 +94,13 @@ Definition fcond_to_string fc :=
 
 
 (* WARNING: tRel indices start from 0 in Tempalte Coq and *not* from 1 as for mkRel in the kernel  *)
-Fixpoint last_internal fctx :=
-  match fctx with
+
+Fixpoint last_condition fc :=
+  match fc with
   | [] => 0
-  | fcVar :: fctx => 1 + last_internal fctx
+  | fcVar :: fctx => 1 + last_condition fctx
   | fcLift :: fctx => 1
   end.
-
-Definition last_condition fc :=
-  last_internal fc.
 
 Fixpoint only_vars (fctx : list forcing_condition) : bool :=
   match fctx with
@@ -248,8 +246,14 @@ Definition from_rel_result (rl : rel_result) : relevance :=
   end.
 
 
-(* TODO: use the same style for the record projections everywhere *)
+(* TODO: move inference of the relevance to another place,
+   since it does not change during the translation.
+   Probably a good place is [translate] function that calls [otranslate]  *)
 
+(** Produces a forcing condition along with corresponding morphism.
+    We need to determine the relevance of the types of morphisms and objects in the category.
+    In order to do that we use the [relevance_of_type] function, and this function requires a global context, so now
+    [get_ctx_lift] also takes is as a parameter *)
 Definition get_ctx_lift (cat : category) (env : Environ.env) (last_fc : nat) :=
   let g_ctx := Environ.env_globals env in
   let relevance_of_arg := from_rel_result (relevance_of_type g_ctx [] cat.(cat_obj)) in
@@ -261,17 +265,8 @@ Definition get_ctx_lift (cat : category) (env : Environ.env) (last_fc : nat) :=
   let dummy_app := (tApp cat.(cat_hom) [tRel 1; tRel 0]) in
   let relevance_hom :=
       from_rel_result (relevance_of_type (Environ.env_globals env) dummy_ctx dummy_app) in
-  [ Build_context_decl
-      hom_name
-      relevance_hom
-      None
-      (tApp cat.(cat_hom) [(tRel (1 + last_fc)); (tRel 0)]);
-      (* replaced mkRel 1 with tRel 0, see comments for [last_condition] *)
-    Build_context_decl
-      pos_name
-      relevance_of_arg
-      None
-      cat.(cat_obj) ].
+  [ vass hom_name relevance_hom (tApp cat.(cat_hom) [(tRel (1 + last_fc)); (tRel 0)]);
+    vass pos_name relevance_of_arg cat.(cat_obj) ].
 
 Definition extend_forcing_ctx (fctx : forcing_context) (f : forcing_condition):=
   {| f_context := f :: fctx.(f_context);
@@ -279,9 +274,7 @@ Definition extend_forcing_ctx (fctx : forcing_context) (f : forcing_condition):=
      f_translator := fctx.(f_translator)|}.
 
 
-(* While extending the context we need to determine the relevance of the types of morphisms and objects in the category.
-   In order to do that we use the [relevance_of_type] function, and this function requires a global context, so now
-   [extend] also takes is as a parameter *)
+(** Packing the extension of a context and of a forcing context together *)
 Definition extend (env : Environ.env) (fctx : forcing_context) : list context_decl * forcing_context :=
   let ext := get_ctx_lift fctx.(f_category) env (last_condition fctx.(f_context)) in
   (ext, extend_forcing_ctx fctx fcLift).
@@ -517,19 +510,27 @@ Definition otranslate_ind
   let ans := it_mkLambda_or_LetIn app (ext ++ paramtyp_subst)%list in
   (sigma, mkOptApp ans args_).
 
-(** Returns an extended forcing context and the function, wrapping
-    give term [body] into [λ (q : cat) (f : Hom(σₑ,q)) . body],
+(** Adds lambda abstractions build from the context [Γ] on top if the given term [body] *)
+Definition lambda_prefix Γ body := it_mkLambda_or_LetIn body Γ.
+
+(** Adds Π's build from the context [Γ] on top if the given term [body] *)
+Definition pi_prefix Γ body := it_mkProd_or_LetIn body Γ.
+
+(** Returns a function, wrapping
+    give term [t] into [λ (q : cat) (f : Hom(σₑ,q)) . t],
     where σₑ is the last forcing condition of σ.
     See Notaion 1 in DSoF paper. *)
-Definition lambda_prefix ext :=
-  fun body => it_mkLambda_or_LetIn body ext.
+Definition λ_q_f (env : Environ.env) (σ : forcing_context) : forcing_context * (term -> term) :=
+  let ext_ctx := get_ctx_lift σ.(f_category) env (last_condition σ.(f_context)) in
+  let ext_fctx := extend_forcing_ctx σ fcLift in
+  (ext_fctx, lambda_prefix ext_ctx).
 
-(** Similarly to [lambda_prefix], but for [Π q f].
+(** Similarly to [λ_q_f], but for [Π q f].
     See Notaion 1 in DSoF paper. *)
-Definition pi_prefix env fctx :=
-  let (ext, fctx) := extend env fctx in
-  ((ext,fctx), fun body => it_mkProd_or_LetIn body ext).
-
+Definition Π_q_f (env : Environ.env) (σ : forcing_context) : forcing_context * (term -> term) :=
+  let ext_ctx := get_ctx_lift σ.(f_category) env (last_condition σ.(f_context)) in
+  let ext_fctx := extend_forcing_ctx σ fcLift in
+  (ext_fctx, pi_prefix ext_ctx).
 
 Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
          (sigma : evar_map) (c : term) {struct c} : evar_map * term :=
@@ -548,17 +549,12 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
       (* For now, we just return the original universe, as it is given in the paper *)
       (sigma, s)
   in
-  (* let (ext0, fctx) := extend env fctx in *)
-  let ext_ctx1 := get_ctx_lift fctx.(f_category) env (last_condition fctx.(f_context)) in
-  let ext_fctx := extend_forcing_ctx fctx fcLift in
-  (* let (ctxs, lam_q_f) := lambda_prefix env fctx in *)
-  (* let (_, fctx) := ctxs in *)
-  (* let (ext, _) := extend env fctx in *)
-  let ext_ctx2 := get_ctx_lift fctx.(f_category) env (last_condition ext_fctx.(f_context)) in
+  let (fctx_ext, λqf) := λ_q_f env fctx in
   (* TODO: universe variable generation *)
   (* let sigma := Evd.set_leq_sort env sigma s s' in *)
-  let tpe := it_mkProd_or_LetIn (tSort s') ext_ctx2 in
-  (sigma, lambda_prefix ext_ctx1 tpe)
+  let (_, Πrg) := Π_q_f env fctx_ext in
+  let tpe := Πrg (tSort s') in
+  (sigma, λqf tpe)
 | tCast c k t =>
   let (sigma, c_) := otranslate env fctx sigma c in
   let (sigma, t_) := otranslate_type otranslate env fctx sigma t in
