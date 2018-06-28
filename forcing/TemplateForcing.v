@@ -532,6 +532,15 @@ Definition Π_q_f (env : Environ.env) (σ : forcing_context) : forcing_context *
   let ext_fctx := extend_forcing_ctx σ fcLift in
   (ext_fctx, pi_prefix ext_ctx).
 
+(** Returns a [evar_map] (currently, unmodified) and a function, wrapping its argument [e] into
+    [λ (q f : σ). Π (r g : σ). e], which corresponds to the "preffix" of the translated sort. *)
+Definition sort_translation_prefix env fctx sigma : evar_map * (term -> term) :=
+    let (fctx_ext, λqf) := λ_q_f env fctx in
+    (* TODO: universe variable generation *)
+    (* let sigma := Evd.set_leq_sort env sigma s s' in *)
+    let (_, Πrg) := Π_q_f env fctx_ext in
+    (sigma, fun e => λqf (Πrg e)).
+
 Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
          (sigma : evar_map) (c : term) {struct c} : evar_map * term :=
   match c with
@@ -540,21 +549,11 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
   (* let ans := tVar (list_to_string fcond_to_string fctx.(f_context) ++ " | tRel " ++ string_of_int n) in *)
     (sigma, ans)
 | tSort s =>
-  let (sigma, s') :=
-      if is_prop s then (sigma, s)
-    else
-      (* TODO: Not sure how to deal with the universe variable generation *)
-      (* Evd.new_sort_variable Evd.univ_flexible sigma *)
-      (* Probably, use an empty list as a universe param *)
-      (* For now, we just return the original universe, as it is given in the paper *)
-      (sigma, s)
-  in
-  let (fctx_ext, λqf) := λ_q_f env fctx in
-  (* TODO: universe variable generation *)
-  (* let sigma := Evd.set_leq_sort env sigma s s' in *)
-  let (_, Πrg) := Π_q_f env fctx_ext in
-  let tpe := Πrg (tSort s') in
-  (sigma, λqf tpe)
+  (* TODO: Not sure how to deal with the universe variable generation *)
+  (* Evd.new_sort_variable Evd.univ_flexible sigma *)
+  (* For now, we just return the original universe, as it is given in the paper *)
+  let (sigma, prefix) := sort_translation_prefix env fctx sigma in
+  (sigma, prefix (tSort s))
 | tCast c k t =>
   let (sigma, c_) := otranslate env fctx sigma c in
   let (sigma, t_) := otranslate_type otranslate env fctx sigma t in
