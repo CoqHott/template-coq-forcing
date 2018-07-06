@@ -348,10 +348,9 @@ Definition id_translate sigma c : unit * term :=
 Definition otranslate_type (tr : Environ.env -> forcing_context -> evar_map -> term -> unit * term)
            (env : Environ.env) (fctx : forcing_context) (sigma : evar_map) (t : term)
   : unit * term :=
-  let (sigma, t_) := tr env fctx sigma t in
+  let t_ := tr env fctx sigma t in
   let last := tRel (last_condition fctx.(f_context)) in
-  let t_ := mkOptApp t_ [ last; tApp fctx.(f_category).(cat_id) [last]] in
-(sigma, t_).
+  (fst t_, mkOptApp (snd t_) [ last; tApp fctx.(f_category).(cat_id) [last]]).
 
 Definition otranslate_boxed (tr : Environ.env -> forcing_context -> evar_map -> term -> unit * term)
            (env : Environ.env) (fctx : forcing_context) (sigma : evar_map) (t : term)
@@ -562,14 +561,14 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
 | tProd na r t u =>
   let (ext0, fctx) := extend env fctx in
   (** Translation of t *)
-  let (sigma, t_) := otranslate_boxed_type otranslate env fctx sigma t in
+  let t_ := otranslate_boxed_type otranslate env fctx sigma t in
   (** Translation of u *)
   let ufctx := add_variable fctx in
-  let (sigma, u_) := otranslate_type otranslate env ufctx sigma u in
+  let  u_ := otranslate_type otranslate env ufctx (fst t_) u in
   (** Result *)
-  let ans := tProd na r t_ u_ in
+  let ans := tProd na r (snd t_) (snd u_) in
   let lam := it_mkLambda_or_LetIn ans ext0 in
-  (sigma, lam)
+  (fst u_, lam)
 | tLambda na r t u =>
   (** Translation of t *)
   let (sigma, t_) := otranslate_boxed_type otranslate env fctx sigma t in
@@ -712,6 +711,25 @@ Definition otranslate_context (env : Environ.env) (fctx : forcing_context)
   match (List.fold_right fold (sigma, fctx, []) ctx) with
     (sigma, _, ctx_) => (sigma, ctx_)
   end.
+
+(** The same as [otranslate_context], but ignores [sigma : evar_map] since it not used so far *)
+Definition otranslate_context_no_sigma (env : Environ.env) (fctx : forcing_context)
+           (sigma : evar_map) (ctx : context)
+  : context :=
+  let fold (a : context_decl) (b : forcing_context * context) :=
+      let (fctx, ctx_) := b in
+      let body_ := match a.(decl_body) with
+                   | None =>  None
+                   | Some _ => Some (tVar ("something went wrong"))
+                   end
+       in
+       let (ext, tfctx) := extend env fctx in
+       let (_, t_) := otranslate_type otranslate env tfctx sigma a.(decl_type) in
+       let t_ := it_mkProd_or_LetIn t_ ext in
+       let decl_ := Build_context_decl a.(decl_name) a.(decl_relevance) body_ t_ in
+       let fctx := add_variable fctx in
+        (fctx, decl_ :: ctx_)
+  in snd (List.fold_right fold (fctx, []) ctx).
 
 Definition toplevel_context (cat : category) (ctx : context) : context :=
   Build_context_decl pos_name Relevant None cat.(cat_obj) :: ctx.
