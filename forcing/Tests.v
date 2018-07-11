@@ -123,6 +123,8 @@ Run TemplateProgram (tTranslate ctx_with_prod "prod_").
 Lemma prod_tr_eq : prod_ᵗ = prod_app_t.
 Proof. reflexivity. Qed.
 
+(* Some examples of translated inductive types obtained from the OCaml Plugin *)
+
 Inductive listᵗ (p : Obj) (A : forall p0 : Obj, p ≥ p0 -> forall p : Obj, p0 ≥ p -> Type) : Type :=
     nilᵗ : listᵗ p A
   | consᵗ : (forall (p0 : Obj) (α : p ≥ p0), A p0 α p0 (# _)) ->
@@ -155,3 +157,12 @@ Definition and_fᵗ
 Inductive orᵗ (p : Obj) (A B : forall p0 : Obj, p ≥ p0 -> forall p : Obj, p0 ≥ p -> Prop) : Prop :=
     or_introlᵗ : (forall (p0 : Obj) (α : p ≥ p0), A p0 α p0 (# _)) -> orᵗ p A B
   | or_introrᵗ : (forall (p0 : Obj) (α : p ≥ p0), B p0 α p0 (# _)) -> orᵗ p A B.
+
+Inductive sigTᵗ (p : Obj)
+          (A : forall p0, p ≥ p0 -> forall p, p0 ≥ p -> Type)
+          (P : forall p0 (α : p ≥ p0),
+              (forall p (α0 : p0 ≥ p), A p (α0 ∘ α) p (# _)) ->
+              forall p, p0 ≥ p -> Type) : Type :=
+  existTᵗ : forall x : forall p0 (α : p ≥ p0), A p0 α p0 (# _),
+    (forall p0 (α : p ≥ p0), P p0 α (fun (q : Obj) (α0 : p0 ≥ q) => x q (α0 ∘ α)) p0 (# _)) ->
+    sigTᵗ p A P.
