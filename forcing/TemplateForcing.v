@@ -206,15 +206,13 @@ End Environ.
 
 Definition get_var_shift n fctx :=
   let fix get n fctx :=
-      if (Nat.eqb n 0 ) then 0
-      else
-        match fctx with
-        | [] => n
-        | fcVar :: fctx => 1 + get (n - 1) fctx
-        | fcLift :: fctx => 2 + get n fctx
+      match fctx with
+      | [] => n
+      | fcVar :: fctx => if (Nat.eqb n 0) then 0 else 1 + get (n - 1) fctx
+      | fcLift :: fctx => 2 + get n fctx
       end
   in
-  get (n + 1) fctx.(f_context).
+  get n fctx.(f_context).
 
 
 (* Some examples to play with  *)
@@ -232,7 +230,7 @@ Definition test_fctx :=
      f_translator := []|}.
 
 Eval compute in gather_morphisms 0 test_fctx.
-Eval compute in get_var_shift 1 test_fctx.
+Eval compute in get_var_shift 0 test_fctx.
 Eval compute in morphism_var 1 test_fctx.
 
 
@@ -290,8 +288,7 @@ Definition translate_var (fctx : forcing_context) (n : nat) : term :=
   let p := tRel (last_condition fctx.(f_context)) in
   let f := morphism_var n fctx in
   let m := get_var_shift n fctx in
-  (* We subsrtact 1 from m because indicies start from 0 *)
-  tApp (tRel (m-1)) [p; f].
+  tApp (tRel m) [p; f].
 
 Definition get_inductive (fctx : forcing_context) (ind : inductive) : inductive :=
   let gr := IndRef ind in
@@ -571,12 +568,12 @@ Fixpoint otranslate (env : Environ.env) (fctx : forcing_context)
   (fst u_, lam)
 | tLambda na r t u =>
   (** Translation of t *)
-  let (sigma, t_) := otranslate_boxed_type otranslate env fctx sigma t in
+  let t_ := otranslate_boxed_type otranslate env fctx sigma t in
   (** Translation of u *)
   let ufctx := add_variable fctx in
-  let (sigma, u_) := otranslate env ufctx sigma u in
-  let ans := tLambda na r t_ u_ in
-  (sigma, ans)
+  let u_ := otranslate env ufctx (fst t_) u in
+  let ans := tLambda na r (snd t_) (snd u_) in
+  (fst u_, ans)
 | tLetIn na r c t u =>
   let (sigma, c_) := otranslate_boxed otranslate env fctx sigma c in
   let (sigma, t_) := otranslate_boxed_type otranslate env fctx sigma t in
