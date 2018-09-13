@@ -15,7 +15,8 @@ Open Scope string_scope.
 
 
 (* To be able to work with values in SProp we define boxing/unboxing *)
-Inductive sBox (A : SProp) : Prop := sbox : A -> sBox A.
+Inductive sBox (A : SProp) : Type :=
+  sbox : A -> sBox A.
 
 Definition ubox {A : SProp} (bA : sBox A) : A :=
   match bA with
@@ -96,7 +97,7 @@ Proof.
   inversion H.
 Qed.
 
-Definition sle_trans n m p (H : sle n m) (H': sle m  p) : sle n p.
+Definition sle_trans {n m p} (H : sle n m) (H': sle m  p) : sle n p.
 Proof.
   revert H'. revert p. induction H.
   - intros p H'. apply sle_0.
@@ -109,7 +110,7 @@ Qed.
 Fixpoint sle_trans' n m p (H : sle n m) (H': sle m  p) {struct H} : sle n p.
 Proof.
   destruct H. apply sle_0.
-  inversion H'. apply ubox. subst. apply sbox. apply sle_S. exact (sle_trans _ _ _ H H1).
+  inversion H'. apply ubox. subst. apply sbox. apply sle_S. exact (sle_trans H H1).
 Abort.
 
 Definition sle_Sn (n : nat) : sle n (S n).
@@ -121,11 +122,11 @@ Definition nat_obj : Type := nat.
 Definition nat_hom (P Q : nat_obj): SProp := sle Q P.
 Notation "P ≥ Q" := (nat_hom P Q) (at level 70).
 
-Definition id_nat_hom (P : nat_obj) : P ≥ P := sle_refl P.
-Notation "# R" := (id_nat_hom R) (at level 70).
+Definition nat_id_hom (P : nat_obj) : P ≥ P := sle_refl P.
+Notation "# R" := (nat_id_hom R) (at level 70).
 
-Definition nat_comp (A B C : nat_obj) (g : B ≥ C) (f : A ≥ B) : nat_hom A C
-  := sle_trans _ _ _ g f.
+Definition nat_comp (A B C : nat_obj) (g : B ≥ C) (f : A ≥ B) : A ≥ C
+  := sle_trans  g f.
 
 Notation "g ∘ f" := (nat_comp _ _ _ g f) (at level 40).
 
@@ -146,7 +147,7 @@ Proof. reflexivity. Qed.
 
 Quote Definition q_nat_obj := nat_obj.
 Quote Definition q_nat_hom := nat_hom.
-Quote Definition q_id_nat_hom := id_nat_hom.
+Quote Definition q_id_nat_hom := nat_id_hom.
 Quote Definition q_nat_comp := nat_comp.
 
 
@@ -168,6 +169,7 @@ Definition ΣE : tsl_context:= (reconstruct_global_context g_ctx,[]).
 
 (** ** The definition of [later] operator *)
 Module Later.
+
   Run TemplateProgram (tImplementTC ΣE "later_TC" "later" (Type->Type)).
   Next Obligation.
     destruct p0.
@@ -336,7 +338,6 @@ Module Later.
     intros α.
     destruct q; reflexivity.
   Qed.
-
 
   (** [later_app] computes on constant function *)
   Run TemplateProgram
