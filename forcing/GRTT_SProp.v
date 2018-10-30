@@ -443,7 +443,7 @@ Module Fix.
                   (forall (T:Type), ((⊳ T) ->  T) -> □ T)).
   Next Obligation.
     revert X. revert T.
-    induction p; intros T f q α; apply f; intros q0 α0.
+    induction p; intros T f q α;apply (f q α); intros q0 α0.
     - destruct q0.
       + simpl. exact tt.
       + simpl.
