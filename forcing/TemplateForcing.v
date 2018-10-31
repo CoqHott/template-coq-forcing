@@ -334,15 +334,12 @@ Definition morphism_var (n : nat) (fctx : forcing_context) : term :=
 (* List.fold_left fold (refl fctx.category last) morphs *)
 
 
-Definition get_var_shift n fctx :=
-  let fix get n fctx :=
-      match fctx with
-      | [] => n
-      | fcVar :: fctx => if (Nat.eqb n 0) then 0 else 1 + get (n - 1) fctx
-      | fcLift :: fctx => 2 + get n fctx
-      end
-  in
-  get n fctx.(f_context).
+Fixpoint get_var_shift n fctx :=
+  match fctx with
+  | [] => n
+  | fcVar :: fctx => if (Nat.eqb n 0) then 0 else 1 + get_var_shift (pred n) fctx
+  | fcLift :: fctx => 2 + get_var_shift n fctx
+  end.
 
 
 (* Some examples to play with  *)
@@ -375,7 +372,7 @@ Parameter n : nat.
 
 Eval compute in firstn 2 (fst (gather_morphisms n test_fctx)).
 Eval compute in (gather_morphisms 1 test_fctx1).
-Eval compute in get_var_shift 0 test_fctx.
+Eval compute in get_var_shift 0 test_fctx.(f_context).
 Eval compute in last_condition test_fctx1.(f_context).
 Eval cbn in morphism_var 0 test_fctx.
 Eval cbn in morphism_var' 0 test_fctx1.
@@ -393,7 +390,7 @@ Eval cbn in morphism_var_right n test_fctx0.
 Definition translate_var (fctx : forcing_context) (n : nat) : term :=
   let p := tRel (last_condition fctx.(f_context)) in
   let f := morphism_var_right n fctx in
-  let m := get_var_shift n fctx in
+  let m := get_var_shift n fctx.(f_context) in
   tApp (tRel m) [p; f].
 
 Definition get_inductive (fctx : forcing_context) (ind : inductive) : inductive :=

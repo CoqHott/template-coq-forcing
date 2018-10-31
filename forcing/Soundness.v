@@ -697,6 +697,24 @@ Proof.
   intros;apply nat_compare_gt;omega.
 Qed.
 
+Lemma there_is_a_lift_not_empty σ :
+  only_vars σ = false -> σ <> [].
+Proof.
+  intros H.
+  destruct σ;simpl;easy.
+Qed.
+
+Hint Resolve there_is_a_lift_not_empty.
+
+Lemma gt_0_Sm_exists n :
+  n > 0 -> exists m, n = S m.
+Proof.
+  intros.
+  destruct H;easy.
+Qed.
+
+Hint Resolve gt_0_Sm_exists.
+
 Lemma subst_morphism_gt t i j n σ q :
   j <= 1 ->
   j <= i ->
@@ -809,9 +827,6 @@ Fixpoint vars_fctx (n : nat) : list forcing_condition :=
   | S m => fcVar :: vars_fctx m
   end.
 
-Definition nvars (σ : list forcing_condition) : nat :=
-  fold_right (fun fc i => match fc with fcVar => 1 + i | fcLift => i end) 0 σ.
-
 
 (** A generalization of morphism_var_sound_0 that works for any initial accumulator value [i] *)
 Lemma morphism_var_sound_i uG (Σ := ([],uG)) Γ Γ0 Γ' Γ'' σ x i :
@@ -841,6 +856,16 @@ Qed.
 Lemma last_cond_gt_0 σ v ψ : exists m, (σ ∙ [v] ∙ ψ).ₑ = 1+m.
 Proof.
 Admitted.
+
+Lemma last_cond_gt_0_not_empty σ :
+  σ <> [] ->
+  σ.ₑ > 0.
+Proof.
+  induction σ;intros H.
+  - exfalso;easy.
+  - destruct a; simpl;omega.
+Qed.
+
 
 Lemma last_condition_sum σ ψ :
   only_vars ψ = true ->
@@ -883,6 +908,24 @@ Proof.
     + simpl. omega.
 Qed.
 
+
+(** Counting varibles in a forcing context *)
+Definition nvars (σ : list forcing_condition) : nat :=
+  fold_right (fun fc i => match fc with fcVar => 1 + i | fcLift => i end) 0 σ.
+
+(** If number of variables in [σ] is greater or equal to the given varible index [n]
+    then varible [n] occurs in the context [σ] *)
+Definition var_in n σ := nvars σ >= n.
+
+Lemma var_in_dec n σ : var_in n σ \/ ~ var_in n σ.
+Proof.
+  unfold var_in.
+  destruct (Nat.le_decidable (nvars σ) n) as [Hle | Hlt]; intuition;auto.
+Qed.
+
+(** Returns true is variable is in the forcing context [σ] and there is a lift
+    after the variable in this context. This corresponds to looking for the
+    the domain of the morphism for the variable [n]. *)
 Fixpoint condition_in (n : nat) (σ : list forcing_condition) : bool :=
   match σ with
   | [] => false
@@ -1055,12 +1098,12 @@ Qed.
 
 Lemma dom_sum''' σ ψ n :
   condition_in n ψ = false ->
-  1+nvars ψ > n ->
+  var_in n ψ ->
   get_domain_var_internal (σ∙ψ) n = fctx_size ψ + get_domain_var_internal σ 0.
 Proof.
   revert n.
   induction ψ; intros n Hv Hvars.
-  - simpl in *. destruct n. reflexivity. inversion_clear Hvars. inversion H.
+  - simpl in *. destruct n. reflexivity. inversion_clear Hvars.
   - destruct a.
     + simpl.
       (* apply gt_S_n in Hvars. *)
@@ -1069,7 +1112,7 @@ Proof.
       * simpl. repeat rewrite domain_var_last_condition_0.
         rewrite last_condition_sum. omega.
         now apply condition_in_0_only_vars.
-      * simpl. apply IHψ;auto. simpl in Hvars. omega.
+      * simpl. apply IHψ;auto. unfold var_in in *. simpl in *. omega.
     + simpl in *. destruct n.
       * inversion Hv.
       * simpl in *.
@@ -1079,7 +1122,7 @@ Qed.
 
 Lemma dom_sum_lift σ ψ n :
   condition_in n ψ = false ->
-  1+nvars ψ > n ->
+  var_in n ψ ->
   get_domain_var_internal (σ∙[fcLift]∙ψ) n = 1+fctx_size ψ.
 Proof.
   intros. rewrite dom_sum''' by assumption. simpl.  omega.
@@ -1111,6 +1154,7 @@ Proof.
     + unfold get_domain_var. simpl in *. repeat apply gt_n_S. now apply IHψ.
 Qed.
 
+Hint Unfold var_in.
 
 Lemma fctx_size_gt_dom_lifts_S σ ψ n :
   condition_in (1+n) ψ = false ->
@@ -1127,7 +1171,7 @@ Proof.
       * assert (only_vars ψ = true) by now apply condition_in_0_only_vars.
         apply lt_n_S. rewrite domain_var_last_condition_0.
         rewrite last_condition_sum by assumption.
-        simpl in *. inversion Hvars.
+        autounfold in *. simpl in *. exfalso. omega.
       * apply gt_n_S. now apply IHψ.
     + unfold get_domain_var. simpl in *. repeat apply gt_n_S. now apply IHψ.
 Qed.
@@ -1327,8 +1371,34 @@ Proof.
          apply weakening_cumul;auto.
          now eapply IHψ.
        * destruct (only_vars ψ) eqn:Hvψ.
-         ** destruct (le_lt_dec (nvars ψ) n) as [Hle | Hlt].
+         ** destruct (var_in_dec (1+n) ψ) as [H_in | H_notin].
             *** simpl.
+                assert (Heq : fctx_size ψ = m).
+                { unfold get_domain_var in HH.
+                  rewrite dom_sum_lift in HH by assumption; auto. }
+                rewrite Heq.
+                rewrite Nat.compare_refl. simpl.
+                rewrite nat_compare_lt_Lt by omega. rewrite <- Heq in *.
+                cbn. fold_notation.
+                assert (Hsum := dom_sum''' σ ψ _ Hψ H_in).
+                rewrite Hsum at 1.
+                simpl. rewrite domain_var_last_condition_0.
+                change (fcLift :: σ ∙ ψ) with (σ ∙ [fcLift] ∙ ψ).
+                rewrite HH'. simpl.
+                rewrite last_condition_sum in *;auto. simpl in HH'.
+                assert (Hm : m' = fctx_size ψ) by omega. subst m'.
+                rewrite Nat.compare_refl. simpl.
+                rewrite nat_compare_lt_Lt by omega.
+                simpl_cumul_app_congr.
+                fold_notation.
+                inversion FcValid. subst.
+                repeat rewrite <- lift_morphism_var.
+                repeat rewrite commut_lift_subst.
+                repeat rewrite <- simpl_lift.
+                apply weakening_cumul;auto.
+                eapply IHψ;eauto.
+            *** simpl.
+                assert (nvars ψ <= n). autounfold in *. intros. omega.
                 assert (S (fctx_size ψ) < dom(σ∙[fcLift]∙ψ,n)) by now apply fctx_size_gt_dom_lifts_S.
                 rewrite nat_compare_lt_Lt by omega. simpl.
                 rewrite nat_compare_lt_Lt by omega.
@@ -1348,24 +1418,25 @@ Proof.
                 repeat rewrite <- simpl_lift.
                 apply weakening_cumul;auto.
                 eapply IHψ;eauto.
-            *** simpl.
-                assert (Heq : fctx_size ψ = m).
+         ** (* only_vars ψ = false *)
+            simpl.
+            destruct (var_in_dec (1+n) ψ) as [H_in | H_notin].
+            *** assert (Heq : fctx_size ψ = m).
                 { unfold get_domain_var in HH.
                   rewrite dom_sum_lift in HH by assumption ||  omega. auto. }
-                rewrite Heq.
-                rewrite Nat.compare_refl. simpl.
+                rewrite Heq. rewrite Nat.compare_refl. simpl.
                 rewrite nat_compare_lt_Lt by omega. rewrite <- Heq in *.
                 cbn. fold_notation.
-                assert (HltS : 1+nvars ψ > 1 +n) by omega.
-                assert (Hsum := dom_sum''' σ ψ _ Hψ HltS).
-                rewrite Hsum at 1.
+                assert (Hsum := dom_sum''' σ ψ _ Hψ H_in).
+                unfold get_domain_var at 1. rewrite Hsum.
                 simpl. rewrite domain_var_last_condition_0.
                 change (fcLift :: σ ∙ ψ) with (σ ∙ [fcLift] ∙ ψ).
                 rewrite HH'. simpl.
-                rewrite last_condition_sum in *;auto. simpl in HH'.
-                assert (Hm : m' = fctx_size ψ) by omega. subst m'.
-                rewrite Nat.compare_refl. simpl.
-                rewrite nat_compare_lt_Lt by omega.
+                rewrite last_condition_contains_lift in *;auto. simpl in HH'.
+                assert (fctx_size ψ > ψ.ₑ) by now apply size_gt_last_cond_lift.
+                rewrite nat_compare_gt_Gt by omega. simpl.
+                rewrite nat_compare_gt_Gt by omega.
+                rewrite HH'. simpl.
                 simpl_cumul_app_congr.
                 fold_notation.
                 inversion FcValid. subst.
@@ -1374,10 +1445,8 @@ Proof.
                 repeat rewrite <- simpl_lift.
                 apply weakening_cumul;auto.
                 eapply IHψ;eauto.
-         ** (* only_vars ψ = false *)
-            simpl.
-            destruct (le_lt_dec (nvars ψ) n) as [Hle | Hlt].
-            *** assert (S (fctx_size ψ) < dom(σ∙[fcLift]∙ψ,n)) by now apply fctx_size_gt_dom_lifts_S.
+            *** assert (nvars ψ <= n). autounfold in *. intros. omega.
+                assert (S (fctx_size ψ) < dom(σ∙[fcLift]∙ψ,n)) by now apply fctx_size_gt_dom_lifts_S.
                 rewrite nat_compare_lt_Lt by omega.
                 simpl. rewrite nat_compare_lt_Lt by omega.
                 replace (S m) with (dom( (σ ∙ [fcLift]) ∙ ψ, n)) by omega.
@@ -1391,31 +1460,6 @@ Proof.
                 rewrite (last_condition_contains_lift σ) by assumption.
                 rewrite (last_condition_contains_lift (σ ∙ [fcLift])) in HH' by assumption.
                 replace (S m') with ψ.ₑ by omega.
-                simpl_cumul_app_congr.
-                fold_notation.
-                inversion FcValid. subst.
-                repeat rewrite <- lift_morphism_var.
-                repeat rewrite commut_lift_subst.
-                repeat rewrite <- simpl_lift.
-                apply weakening_cumul;auto.
-                eapply IHψ;eauto.
-            *** assert (Heq : fctx_size ψ = m).
-                { unfold get_domain_var in HH.
-                  rewrite dom_sum_lift in HH by assumption ||  omega. auto. }
-                rewrite Heq. rewrite Nat.compare_refl. simpl.
-                rewrite nat_compare_lt_Lt by omega. rewrite <- Heq in *.
-                cbn. fold_notation.
-                assert (HltS : 1+nvars ψ > 1 +n) by omega.
-                assert (Hsum := dom_sum''' σ ψ _ Hψ HltS).
-                unfold get_domain_var at 1. rewrite Hsum.
-                simpl. rewrite domain_var_last_condition_0.
-                change (fcLift :: σ ∙ ψ) with (σ ∙ [fcLift] ∙ ψ).
-                rewrite HH'. simpl.
-                rewrite last_condition_contains_lift in *;auto. simpl in HH'.
-                assert (fctx_size ψ > ψ.ₑ) by now apply size_gt_last_cond_lift.
-                rewrite nat_compare_gt_Gt by omega. simpl.
-                rewrite nat_compare_gt_Gt by omega.
-                rewrite HH'. simpl.
                 simpl_cumul_app_congr.
                 fold_notation.
                 inversion FcValid. subst.
@@ -1443,6 +1487,57 @@ Proof.
   rewrite universe_equal_refl. reflexivity.
 Qed.
 
+Lemma get_var_shift_lift_gt_0 n σ ψ :
+  exists m, get_var_shift n (σ∙[fcLift]∙ψ) = 1 + m.
+Proof.
+  Admitted.
+
+Lemma get_var_shift_in n σ ψ :
+  var_in (1+n) ψ ->
+  get_var_shift n (σ ∙ ψ) = get_var_shift n ψ.
+Proof.
+  revert n.
+  induction ψ; intros n Hv.
+  - inversion Hv.
+  - destruct a.
+    + autounfold in *. simpl.
+      destruct n.
+      * reflexivity.
+      * simpl. apply f_equal. easy.
+    + simpl. apply f_equal. easy.
+Qed.
+
+Lemma get_var_shift_notin n σ ψ :
+  ~ var_in (1+n) ψ ->
+  get_var_shift n (σ ∙ ψ) = fctx_size ψ + get_var_shift (n - nvars ψ) σ.
+Proof.
+  revert n.
+  induction ψ; intros n Hv.
+  - simpl. replace (n-0) with n by omega. reflexivity.
+  - destruct a.
+    + autounfold in *. simpl.
+      destruct n.
+      * simpl in *. omega.
+      * simpl. apply f_equal. easy.
+    + simpl. apply f_equal. easy.
+Qed.
+
+Lemma fctx_size_get_var_shift_gt σ n :
+  var_in (1+n) σ ->
+  fctx_size σ > get_var_shift n σ.
+Proof.
+  revert n.
+  induction σ; intros n Hv.
+  - inversion Hv.
+  - destruct a.
+    + simpl in *.
+      destruct n.
+      * simpl. omega.
+      * simpl. apply gt_n_S. now apply IHσ.
+    + simpl. repeat apply gt_n_S. now apply IHσ.
+Qed.
+
+
 Lemma forcing_cond_subst_id uG (Σ := ([],uG)) t σ ψ Γ Γ' :
   let q := 1 + fctx_size ψ in
   let f := fctx_size ψ in
@@ -1455,16 +1550,71 @@ Proof.
   - (* tRel *)
     unfold ft_term,otranslate,snd. unfold translate_var. unfold morphism_var_right.
     replace (1+n) with (S n) by reflexivity. fold_notation. simpl.
-    admit.
-    (* NOTE: if we want to prove this for any [ψ], we first should show some
-       properties of [get_var_sift]*)
-    (* simpl_cumul_app_congr. fold_notation. *)
-    (* change (Σ;;; Γ' |- φ(dom(σ∙ψ,n),0,n,σ∙ψ) <=  φ(dom(σ∙[fcLift]∙ψ,n),0,n, σ∙[fcLift]∙ψ) {q := ^σ.ₑ} {f := # ^σ.ₑ}). now eapply morph_var_subst with (ψ := [fcLift]). *)
+    fold_notation.
+    destruct (get_var_shift_lift_gt_0 n σ ψ) as [m Hm].
+    rewrite Hm. simpl.
+    destruct (var_in_dec (1+n) ψ) as [H_in | H_notin].
+    + rewrite get_var_shift_in in Hm by assumption.
+      assert (fctx_size ψ > get_var_shift n ψ) by now apply fctx_size_get_var_shift_gt.
+      rewrite nat_compare_gt_Gt by omega. simpl.
+      rewrite nat_compare_gt_Gt by omega.
+      replace (S m) with (get_var_shift n ψ) by omega.
+      rewrite get_var_shift_in by assumption.
+      destruct (only_vars ψ) eqn:Hv; simpl; fold_notation.
+      * rewrite last_condition_sum with (σ:=σ ∙ [fcLift]) by assumption.
+        simpl. replace (fctx_size ψ + 1) with (1 + fctx_size ψ) by omega. simpl.
+        rewrite Nat.compare_refl. simpl.
+        rewrite nat_compare_lt_Lt by omega.
+        rewrite last_condition_sum by assumption.
+        simpl_cumul_app_congr. fold_notation.
+        now eapply morph_var_subst.
+      * rewrite last_condition_contains_lift with (σ:=σ ∙ [fcLift]) by assumption.
+        rewrite last_condition_contains_lift in * by assumption.
+        assert (fctx_size ψ > ψ.ₑ) by now apply size_gt_last_cond_lift.
+        assert (Hgt : ψ.ₑ > 0) by now apply last_cond_gt_0_not_empty.
+        assert (HH' : exists m', ψ.ₑ = S m') by auto.
+        destruct HH' as [m' Hm']. rewrite Hm'.
+        rewrite nat_compare_gt_Gt by omega. simpl.
+        rewrite nat_compare_gt_Gt by omega.
+        simpl_cumul_app_congr. fold_notation.
+        now eapply morph_var_subst.
+    + rewrite get_var_shift_notin in Hm by assumption. simpl in Hm.
+      rewrite nat_compare_lt_Lt by omega. simpl.
+      rewrite nat_compare_lt_Lt by omega.
+      destruct (only_vars ψ) eqn:Hv; simpl; fold_notation.
+      * rewrite last_condition_sum with (σ:=σ ∙ [fcLift]) by assumption.
+        simpl. replace (fctx_size ψ + 1) with (1 + fctx_size ψ) by omega. simpl.
+        rewrite Nat.compare_refl. simpl.
+        rewrite nat_compare_lt_Lt by omega.
+        rewrite last_condition_sum by assumption.
+        replace (pred m) with (fctx_size ψ + get_var_shift (n - nvars ψ) σ) by omega.
+        rewrite <- get_var_shift_notin by assumption.
+        simpl_cumul_app_congr. fold_notation.
+        now eapply morph_var_subst.
+      * rewrite last_condition_contains_lift with (σ:=σ ∙ [fcLift]) by assumption.
+        rewrite last_condition_contains_lift in * by assumption.
+        assert (fctx_size ψ > ψ.ₑ) by now apply size_gt_last_cond_lift.
+        assert (Hgt : ψ.ₑ > 0) by now apply last_cond_gt_0_not_empty.
+        assert (HH' : exists m', ψ.ₑ = S m') by auto.
+        destruct HH' as [m' Hm']. rewrite Hm'.
+        rewrite nat_compare_gt_Gt by omega. simpl.
+        rewrite nat_compare_gt_Gt by omega.
+        replace (pred m) with (fctx_size ψ + get_var_shift (n - nvars ψ) σ) by omega.
+        rewrite <- get_var_shift_notin by assumption.
+        simpl_cumul_app_congr. fold_notation.
+        now eapply morph_var_subst.
   - admit. (* [tVar] not supported*)
   - admit. (* [tMeta] not supported*)
   - admit. (* [tEvar] not supported*)
-  - (* tSort *) constructor. simpl. admit.
-                (* apply eq_universe_refl. *)
+  - (* tSort *)
+    constructor. simpl.
+    destruct (only_vars ψ) eqn:Hv; simpl; fold_notation.
+    + rewrite last_condition_sum with (σ:=σ ∙ [fcLift]) by assumption.
+      simpl. replace (fctx_size ψ + 1) with (1 + fctx_size ψ) by omega. simpl.
+      rewrite Nat.compare_refl. simpl.
+      rewrite nat_compare_lt_Lt by omega.
+      rewrite last_condition_sum by assumption.
+      rewrite Nat.eqb_refl. rewrite eq_universe_refl. reflexivity.
 Admitted.
 
 Lemma forcing_typing_soundness uG (Σ := ([],uG)) Γ Γ' t T σ :
