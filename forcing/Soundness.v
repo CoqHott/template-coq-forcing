@@ -48,6 +48,79 @@ Notation "^ i" := (tRel i) (at level 50, format "^ i").
 Definition f_ctx_ext (σ σ' : list forcing_condition) := σ' ++ σ.
 Notation "σ ∙ σ' " := (f_ctx_ext σ σ') (at level 100).
 
+Notation "'φ(' q ',' i ',' n ',' σ ')'" :=
+  (morphism_var_alt_right cat q i (1+n) σ) (at level 20).
+
+
+Tactic Notation "fold_ft_notation" :=
+  repeat
+    (match goal with
+     | |- context [(snd (otranslate (Environ.of_global_context ?Σ) (mkFCtxt ?σ ?cat []) ?v ?c))] =>
+       change (snd (otranslate (Environ.of_global_context Σ) (mkFCtxt σ cat []) v c))
+         with ([c]ᵗ Σ σ)
+     end).
+
+Tactic Notation "fold_morph_var_notation" :=
+  repeat
+    (match goal with
+     | |- context [morphism_var_alt_right ?cat ?q ?i (S ?n) ?σ] =>
+       change(morphism_var_alt_right cat q i (S n) σ) with (φ(q,i,n,σ))
+     end).
+
+Tactic Notation "fold_domain_var_notation" :=
+  repeat
+    (match goal with
+     | |- context [get_domain_var_internal ?fctx (S ?n)] => change (get_domain_var_internal fctx (S n)) with dom(fctx,n)
+     end).
+
+Tactic Notation "fold_fctx_notation" :=
+  repeat
+    (match goal with
+     | |- context [?xs ++ ?ys] =>
+       match type of xs with
+       | list forcing_condition => change (xs ++ ys) with (ys∙xs)
+       end
+     end).
+
+Tactic Notation "fold_fctx_notation_singleton" :=
+  repeat
+    (match goal with
+     | |- context [?x :: ?xs] =>
+       match type of x with
+       | forcing_condition =>
+         match xs with
+         | [] => idtac
+         | _ => change (x :: xs) with (xs∙[x])
+         end
+       end
+     | |- context [?x :: ?xs ∙ ?ys] =>
+       match type of x with
+       | forcing_condition =>
+         match xs with
+         | [] => idtac
+         | _ => change (x :: xs ∙ ys) with (xs∙[x]∙ys)
+         end
+       end
+     end).
+
+Tactic Notation "fold_fctx_notation_singleton1" :=
+  repeat
+    (match goal with
+     | |- context [?x :: ?xs ∙ ?ys] =>
+       match type of x with
+       | forcing_condition =>
+         match xs with
+         | [] => idtac
+         | _ => change (x :: xs ∙ ys) with (xs∙[x]∙ys)
+         end
+       end
+     end).
+
+Tactic Notation "fold_notation" :=
+  fold_morph_var_notation; fold_domain_var_notation;
+  fold_fctx_notation;fold_fctx_notation_singleton;fold_fctx_notation_singleton1;
+  fold_ft_notation.
+
 
 Definition leq_refl sigma t : leq_term sigma t t = true.
 Proof.
@@ -173,7 +246,8 @@ Ltac solve_rel :=
 
 Reserved Notation "E ## Γ => Γ' |= σ" (at level 40).
 
-(* TODO: think about the empty context case *)
+(** This is like forcing context validity (Definition 11 in the paper)
+    and thanslation of contexts (Definition 14, second paragraph) two-in-one *)
 Inductive fctx_valid E : context -> context -> list forcing_condition -> Type :=
 | fctx_valid_nil : E ## [] => [vass (nNamed "p") rlv_obj (tConst "Obj" nil)] |= nil
 | fctx_valid_cons_var Γ Γ' σ T n n' r r':
@@ -181,10 +255,10 @@ Inductive fctx_valid E : context -> context -> list forcing_condition -> Type :=
     let v := vass n r T in
     let T' := ⟦T⟧! (to_global_context E) σ in
     let v' := vass n' r' T' in
-        E ## (Γ ,, v) => (Γ' ,, v') |= (σ ,, fcVar)
+        E ## (Γ ,, v) => (Γ' ,, v') |= (σ ∙ [fcVar])
 | fctx_valid_cons_lift Γ Γ' σ :
     E ## Γ => Γ' |= σ ->
-    E ## Γ => (Γ' ,,, get_ctx_lift cat E (last_condition σ)) |= (σ ,, fcLift)
+    E ## Γ => (Γ' ,,, get_ctx_lift cat E (last_condition σ)) |= (σ ∙ [fcLift])
 where "E ## Γ => Γ' |= σ" := (fctx_valid E Γ Γ' σ).
 
 
@@ -646,14 +720,6 @@ Proof.
 Qed.
 
 Definition default_fctx (σ : list forcing_condition) : forcing_context := mkFCtxt σ cat [].
-
-Definition morphism_var_right' i n fctx : term :=
-  let q := get_domain_var fctx n in
-  morphism_var_alt_right cat q i (1+n) fctx.
-
-
-Notation "'φ(' q ',' i ',' n ',' σ ')'" :=
-  (morphism_var_alt_right cat q i (1+n) σ) (at level 20).
 
 (** This is a step of unfolding of the "morphism for the variable [n]" function.
     See Def. 13 in the paper. This is a case for a morphism:
@@ -1185,76 +1251,6 @@ Conjecture congr_cumul_app_r : forall Σ Γ M Ns1 Ns2,
     Forall2 (cumul Σ Γ) Ns1 Ns2 ->
     cumul Σ Γ (tApp M Ns1) (tApp M Ns2).
 
-Tactic Notation "fold_ft_notation" :=
-  repeat
-    (match goal with
-     | |- context [(snd (otranslate (Environ.of_global_context ?Σ) (mkFCtxt ?σ ?cat []) ?v ?c))] =>
-       change (snd (otranslate (Environ.of_global_context Σ) (mkFCtxt σ cat []) v c))
-         with ([c]ᵗ Σ σ)
-     end).
-
-Tactic Notation "fold_morph_var_notation" :=
-  repeat
-    (match goal with
-     | |- context [morphism_var_alt_right ?cat ?q ?i (S ?n) ?σ] =>
-       change(morphism_var_alt_right cat q i (S n) σ) with (φ(q,i,n,σ))
-     end).
-
-Tactic Notation "fold_domain_var_notation" :=
-  repeat
-    (match goal with
-     | |- context [get_domain_var_internal ?fctx (S ?n)] => change (get_domain_var_internal fctx (S n)) with dom(fctx,n)
-     end).
-
-Tactic Notation "fold_fctx_notation" :=
-  repeat
-    (match goal with
-     | |- context [?xs ++ ?ys] =>
-       match type of xs with
-       | list forcing_condition => change (xs ++ ys) with (ys∙xs)
-       end
-     end).
-
-Tactic Notation "fold_fctx_notation_singleton" :=
-  repeat
-    (match goal with
-     | |- context [?x :: ?xs] =>
-       match type of x with
-       | forcing_condition =>
-         match xs with
-         | [] => idtac
-         | _ => change (x :: xs) with (xs∙[x])
-         end
-       end
-     | |- context [?x :: ?xs ∙ ?ys] =>
-       match type of x with
-       | forcing_condition =>
-         match xs with
-         | [] => idtac
-         | _ => change (x :: xs ∙ ys) with (xs∙[x]∙ys)
-         end
-       end
-     end).
-
-Tactic Notation "fold_fctx_notation_singleton1" :=
-  repeat
-    (match goal with
-     | |- context [?x :: ?xs ∙ ?ys] =>
-       match type of x with
-       | forcing_condition =>
-         match xs with
-         | [] => idtac
-         | _ => change (x :: xs ∙ ys) with (xs∙[x]∙ys)
-         end
-       end
-     end).
-
-Tactic Notation "fold_notation" :=
-  fold_morph_var_notation; fold_domain_var_notation;
-  fold_fctx_notation;fold_fctx_notation_singleton;fold_fctx_notation_singleton1;
-  fold_ft_notation.
-
-
 Tactic Notation "solve_cumul_refl" :=
   eapply cumul_refl; simpl; repeat rewrite Nat.eqb_refl; (reflexivity || eapply leq_refl).
 
@@ -1617,6 +1613,84 @@ Proof.
       rewrite Nat.eqb_refl. rewrite eq_universe_refl. reflexivity.
 Admitted.
 
+Lemma tRel_empty_ctx_false n T Σ :
+  Σ ;;; [] |- (^n) : T -> False.
+Proof.
+  intros H.
+Admitted.
+
+Lemma get_var_shift_isdecl {uG} (Σ := ([],uG)) {Γ Γ' σ n} :
+  of_global_context Σ ## Γ => Γ' |= σ ->
+  n < #|Γ| ->
+  get_var_shift n σ < #|Γ'|.
+Proof.
+  intros FcValid.
+  revert n.
+  induction FcValid;intros m isdecl.
+  - inversion isdecl.
+  - simpl. destruct m.
+    + simpl. omega.
+    + simpl. apply lt_n_S. easy.
+  - simpl. repeat apply lt_n_S. easy.
+Qed.
+
+Lemma n_ls_s m :  {n : nat | n < m } -> {n : nat | n < S m }.
+Proof.
+  intros H.
+  destruct H as [n Hn]. exists m;easy.
+Qed.
+
+Lemma safe_nth_Sn (A : Type) (xs : list A) x (p : {n : nat | n < #|xs| }) (q : {n : nat | n < #|x :: xs| }):
+  utils.safe_nth (x :: xs) q = utils.safe_nth xs p.
+Proof.
+  destruct p. simpl.
+Admitted.
+
+Lemma get_var_shift_sound_lookup uG (Σ := ([],uG)) Γ Γ' σ n
+      (isdecl :  n < #|Γ|) (FcValid : of_global_context Σ ## Γ => Γ' |= σ) T:
+  decl_type (utils.safe_nth Γ (exist (fun n0 : nat => n0 < #|Γ|) n isdecl)) = T ->
+  decl_type (utils.safe_nth Γ' (exist (fun n0 : nat => n0 < #|Γ'|) (get_var_shift n σ)
+  (get_var_shift_isdecl FcValid isdecl))) = (⟦T⟧! Σ σ).
+Proof.
+  generalize dependent n.
+  induction FcValid;intros m isdecl H.
+  - simpl. inversion isdecl.
+  - destruct m.
+    + simpl in *.
+Admitted.
+
+
+Lemma get_var_shift_sound uG (Σ := ([],uG)) Γ Γ' σ n (isdecl :  n < #|Γ|):
+  let γ := get_ctx_lift cat (of_global_context Σ) dom(σ,n) in
+  of_global_context Σ ## Γ => Γ' |= σ ->
+  (* Σ;;; Γ |- (^n) : T -> *)
+
+  (* {T : term & Σ;;; Γ' |- (^get_var_shift n σ) : pi_prefix γ T}. *)
+           (* {T : term & Σ;;; Γ' |- (^get_var_shift n σ) : lift0 (1+n) (⟦T⟧! Σ σ)}. *)
+  Σ;;; Γ' |- (^get_var_shift n σ) :
+    ([(lift0 (S n)) (decl_type (utils.safe_nth Γ (exist (fun n0 : nat => n0 < #|Γ|) n isdecl)))
+       ]ᵗ Σ σ).
+Proof.
+  intros ? FcValid.
+  induction FcValid.
+  - exfalso. simpl in *. omega.
+    (* now eapply tRel_empty_ctx_false. *)
+  - simpl. destruct n.
+    + subst Σ. simpl.
+      (* eapply type_Rel with (Γ := Γ ,, v). *)
+      (* solve_rel. simpl. unfold ft_type_boxed. cbn. unfold mkOptApp,extend_forcing_ctx. simpl. *)
+      (* fold_notation. subst Σ. rewrite lift0_ft_term. *)
+      (* solve_rel. *)
+    (*   pose ( *)
+    (*   lift0 1 (tProd pos_name Relevant (tConst "Obj" []) *)
+    (*                (tProd hom_name Relevant (tApp (tConst "Hom" []) [^(S σ.ₑ); ^0]) *)
+    (*                       (tApp (([T ]ᵗ Σ (σ,, fcVar ∙ [fcLift]))) [^1; tApp (tConst "Id_hom" []) [^1]])))). simpl in t. *)
+    (*   unfold ft_type_boxed in T'. simpl in T'. *)
+    (*   assert (HH : 0 < #|Γ' ,, v'|) by (simpl;omega). *)
+    (*   pose (decl_type (utils.safe_nth (Γ' ,, v') (exist (fun n : nat => n < #|Γ' ,, v'|) 0 HH))). *)
+    (*   simpl in t. *)
+Admitted.
+
 Lemma forcing_typing_soundness uG (Σ := ([],uG)) Γ Γ' t T σ :
   cat_id_conv_l ->
   wf_graph uG ->
@@ -1630,13 +1704,10 @@ Proof.
   generalize dependent σ.
   induction Ty; intros σ Γ' FcValid; simpl.
   - (* -- Variables -- *)
-    simpl. unfold ft_term,ft_type. simpl. unfold translate_var. simpl.
-    eapply type_Conv.
-    + eapply type_App.
-      * (* something about [get_var_shift] with relation to the valid forcing context *)  admit.
-      * (* stuff about [morph_var]  *) admit.
-    + admit.
-    + admit.
+    simpl. unfold ft_term,ft_type. simpl. unfold translate_var,mkOptApp. simpl. fold_notation.
+    eapply type_App.
+      + (* something about [get_var_shift] with relation to the valid forcing context *)  admit.
+      + (* stuff about [morph_var]  *) admit.
   - (* -- Sorts -- *)
     eapply translation_of_sort_sound with
         (s' := (Universe.super l));eauto.

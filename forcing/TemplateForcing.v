@@ -167,6 +167,20 @@ Definition get_ctx_lift (cat : category) (env : Environ.env) (last_fc : nat) :=
   [ vass hom_name relevance_hom (tApp cat.(cat_hom) [(tRel (1 + last_fc)); (tRel 0)]);
     vass pos_name relevance_of_arg cat.(cat_obj) ].
 
+(** More general version of [get_ctx_lift] *)
+Definition get_ctx_lift' (cat : category) (env : Environ.env) (domain : nat) (codomain : nat) :=
+  let g_ctx := Environ.env_globals env in
+  let relevance_of_arg := from_rel_result (relevance_of_type g_ctx [] cat.(cat_obj)) in
+  let dummy_ctx :=
+      [Build_context_decl nAnon relevance_of_arg None cat.(cat_obj);
+       Build_context_decl nAnon relevance_of_arg None cat.(cat_obj)] in
+  let dummy_app := (tApp cat.(cat_hom) [tRel 1; tRel 0]) in
+  let relevance_hom :=
+      from_rel_result (relevance_of_type (Environ.env_globals env) dummy_ctx dummy_app) in
+  [ vass hom_name relevance_hom (tApp cat.(cat_hom) [(tRel domain); (tRel codomain)]);
+    vass pos_name relevance_of_arg cat.(cat_obj) ].
+
+
 
 (** Packing the extension of a context and of a forcing context together *)
 Definition extend (env : Environ.env) (fctx : forcing_context) : list context_decl * forcing_context :=
